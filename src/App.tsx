@@ -214,6 +214,20 @@ export function App() {
         }`,
         isLoading: false,
       }));
+      if (res.success) {
+        setSelectedItem((prev) => {
+          if (!prev) return null;
+          const prevName =
+            prev.type === "cask"
+              ? (prev.data as any).token
+              : (prev.data as any).name;
+          if (prevName === name) {
+            setIsInspectorOpen(false);
+            return null;
+          }
+          return prev;
+        });
+      }
       loadData();
     } catch (err: any) {
       setTerminalState((prev) => ({

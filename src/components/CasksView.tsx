@@ -6,6 +6,8 @@ import {
   CheckCircle,
   LayoutGrid,
   List,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { CaskItem, OutdatedPackage } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
@@ -28,12 +30,15 @@ export const CasksView: React.FC<CasksViewProps> = ({
   outdatedList,
   searchTerm,
   onUpgrade,
+  onUninstall,
+  isActionRunning,
   isLoading,
   selectedItem,
   onSelectItem,
 }) => {
   const [filterMode, setFilterMode] = useState<"all" | "outdated">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [caskToUninstall, setCaskToUninstall] = useState<string | null>(null);
   const outdatedMap = new Map(outdatedList.map((o) => [o.name, o]));
 
   const filteredCasks = casks.filter((cask) => {
@@ -191,7 +196,7 @@ export const CasksView: React.FC<CasksViewProps> = ({
                     )}
                   </div>
 
-                  <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     {cask.homepage && (
                       <a
                         href={cask.homepage}
@@ -212,6 +217,15 @@ export const CasksView: React.FC<CasksViewProps> = ({
                         Update
                       </button>
                     )}
+
+                    <button
+                      onClick={() => setCaskToUninstall(cask.token)}
+                      disabled={isActionRunning}
+                      className="p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-40"
+                      title={`Remove ${displayName}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -282,20 +296,73 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       )}
                     </td>
                     <td className="py-2.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                      {isOutdated && (
+                      <div className="flex items-center justify-end gap-1.5">
+                        {isOutdated && (
+                          <button
+                            onClick={() => onUpgrade(cask.token)}
+                            className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
+                          >
+                            Update
+                          </button>
+                        )}
                         <button
-                          onClick={() => onUpgrade(cask.token)}
-                          className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
+                          onClick={() => setCaskToUninstall(cask.token)}
+                          disabled={isActionRunning}
+                          className="p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-40"
+                          title={`Remove ${displayName}`}
                         >
-                          Update
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {caskToUninstall && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#1c1c20] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-sm text-zinc-100">
+                  Uninstall Application?
+                </h3>
+                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                  Are you sure you want to uninstall{" "}
+                  <span className="font-mono text-zinc-200 font-semibold">{caskToUninstall}</span>?
+                  This will remove the application bundle from your system.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setCaskToUninstall(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const target = caskToUninstall;
+                  setCaskToUninstall(null);
+                  onUninstall(target);
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Uninstall
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

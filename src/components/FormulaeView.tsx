@@ -5,6 +5,8 @@ import {
   Terminal,
   CheckCircle,
   Layers,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { FormulaItem, OutdatedPackage } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
@@ -27,11 +29,14 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
   outdatedList,
   searchTerm,
   onUpgrade,
+  onUninstall,
+  isActionRunning,
   isLoading,
   selectedItem,
   onSelectItem,
 }) => {
   const [filterMode, setFilterMode] = useState<"all" | "outdated">("all");
+  const [formulaToUninstall, setFormulaToUninstall] = useState<string | null>(null);
   const outdatedMap = new Map(outdatedList.map((o) => [o.name, o]));
 
   const filtered = formulae.filter((item) => {
@@ -189,6 +194,15 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
                             Update
                           </button>
                         )}
+
+                        <button
+                          onClick={() => setFormulaToUninstall(item.name)}
+                          disabled={isActionRunning}
+                          className="p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer disabled:opacity-40"
+                          title={`Remove ${item.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -196,6 +210,49 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {formulaToUninstall && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#1c1c20] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-sm text-zinc-100">
+                  Uninstall Formula?
+                </h3>
+                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                  Are you sure you want to uninstall{" "}
+                  <span className="font-mono text-zinc-200 font-semibold">{formulaToUninstall}</span>?
+                  This will remove the CLI binary and its installed libraries from your system.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setFormulaToUninstall(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const target = formulaToUninstall;
+                  setFormulaToUninstall(null);
+                  onUninstall(target);
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Uninstall
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
