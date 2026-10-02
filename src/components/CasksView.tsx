@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { CaskItem, OutdatedPackage } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
+import { AppIcon } from "./AppIcon";
 
 interface CasksViewProps {
   casks: CaskItem[];
@@ -146,9 +147,12 @@ export const CasksView: React.FC<CasksViewProps> = ({
                 <div>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 app-squircle bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 text-white flex items-center justify-center font-bold text-base shrink-0">
-                        {displayName.charAt(0).toUpperCase()}
-                      </div>
+                      <AppIcon
+                        name={cask.token}
+                        desc={cask.desc}
+                        isCask={true}
+                        size="md"
+                      />
                       <div className="min-w-0">
                         <h4 className="font-semibold text-sm text-zinc-100 tracking-tight truncate group-hover:text-[#0A84FF] transition-colors">
                           {displayName}
@@ -247,9 +251,12 @@ export const CasksView: React.FC<CasksViewProps> = ({
                     className="hover:bg-white/[0.04] transition-colors cursor-pointer group"
                   >
                     <td className="py-2.5 px-4 font-semibold text-zinc-200 flex items-center gap-2.5">
-                      <div className="w-6 h-6 app-squircle bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                        {displayName.charAt(0).toUpperCase()}
-                      </div>
+                      <AppIcon
+                        name={cask.token}
+                        desc={cask.desc}
+                        isCask={true}
+                        size="sm"
+                      />
                       <span className="group-hover:text-[#0A84FF] transition-colors truncate">
                         {displayName}
                       </span>

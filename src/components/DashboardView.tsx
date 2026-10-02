@@ -19,6 +19,7 @@ import {
   ServiceInfo,
 } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
+import { AppIcon } from "./AppIcon";
 
 interface DashboardViewProps {
   casks: CaskItem[];
@@ -228,16 +229,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }
                       className="py-2 px-3 flex items-center justify-between text-xs hover:bg-white/[0.04] rounded-lg transition-colors cursor-pointer"
                     >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-zinc-200">{cask.name}</span>
-                          <span className="text-[10px] uppercase font-mono px-1 py-0.2 rounded bg-blue-500/10 text-blue-400">
-                            Cask
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
-                          {cask.installed_versions.join(", ")} &rarr;{" "}
-                          <span className="text-[#FF9F0A] font-medium">{cask.current_version}</span>
+                      <div className="flex items-center gap-3">
+                        <AppIcon name={cask.name} isCask={true} size="sm" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-zinc-200">{cask.name}</span>
+                            <span className="text-[10px] uppercase font-mono px-1 py-0.2 rounded bg-blue-500/10 text-blue-400">
+                              Cask
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                            {cask.installed_versions.join(", ")} &rarr;{" "}
+                            <span className="text-[#FF9F0A] font-medium">{cask.current_version}</span>
+                          </div>
                         </div>
                       </div>
 
@@ -270,16 +274,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       }
                       className="py-2 px-3 flex items-center justify-between text-xs hover:bg-white/[0.04] rounded-lg transition-colors cursor-pointer"
                     >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-zinc-200 font-mono">{form.name}</span>
-                          <span className="text-[10px] uppercase font-mono px-1 py-0.2 rounded bg-purple-500/10 text-purple-400">
-                            Formula
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
-                          {form.installed_versions.join(", ")} &rarr;{" "}
-                          <span className="text-[#FF9F0A] font-medium">{form.current_version}</span>
+                      <div className="flex items-center gap-3">
+                        <AppIcon name={form.name} isCask={false} size="sm" />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-zinc-200 font-mono">{form.name}</span>
+                            <span className="text-[10px] uppercase font-mono px-1 py-0.2 rounded bg-purple-500/10 text-purple-400">
+                              Formula
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                            {form.installed_versions.join(", ")} &rarr;{" "}
+                            <span className="text-[#FF9F0A] font-medium">{form.current_version}</span>
+                          </div>
                         </div>
                       </div>
 

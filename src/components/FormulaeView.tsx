@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { FormulaItem, OutdatedPackage } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
+import { AppIcon } from "./AppIcon";
 
 interface FormulaeViewProps {
   formulae: FormulaItem[];
@@ -120,7 +121,8 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
                     }`}
                   >
                     <td className="py-2.5 px-4 font-mono font-semibold text-zinc-200">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <AppIcon name={item.name} desc={item.desc} isCask={false} size="sm" />
                         <span className="group-hover:text-[#0A84FF] transition-colors">
                           {item.name}
                         </span>

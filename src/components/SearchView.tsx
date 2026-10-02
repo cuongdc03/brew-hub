@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Search, Download, Terminal, AppWindow, Loader2 } from "lucide-react";
 import { SearchResult } from "../types/brew";
 import { searchPackages } from "../services/api";
+import { AppIcon } from "./AppIcon";
 
 interface SearchViewProps {
   onInstall: (name: string, isCask: boolean) => void;
@@ -106,9 +107,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onInstall, isActionRunni
                     className="p-3.5 rounded-xl apple-card flex items-center justify-between group"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 app-squircle bg-gradient-to-tr from-blue-600 to-sky-400 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                        {cask.charAt(0).toUpperCase()}
-                      </div>
+                      <AppIcon name={cask} isCask={true} size="md" />
                       <div className="min-w-0">
                         <h4 className="font-semibold text-xs text-zinc-100 truncate group-hover:text-[#0A84FF] transition-colors">
                           {cask}
@@ -146,9 +145,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onInstall, isActionRunni
                     className="p-3.5 rounded-xl apple-card flex items-center justify-between group"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 app-squircle bg-gradient-to-tr from-purple-600 to-violet-500 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                        <Terminal className="w-3.5 h-3.5" />
-                      </div>
+                      <AppIcon name={form} isCask={false} size="md" />
                       <div className="min-w-0">
                         <h4 className="font-mono font-semibold text-xs text-zinc-100 truncate group-hover:text-[#0A84FF] transition-colors">
                           {form}

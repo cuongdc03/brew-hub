@@ -10,6 +10,7 @@ import {
   Cpu,
 } from "lucide-react";
 import { SystemInfo } from "../types/brew";
+import { BrewHubLogo } from "./BrewHubLogo";
 
 export type TabType = "dashboard" | "casks" | "formulae" | "services" | "cleanup" | "search";
 
@@ -111,12 +112,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="w-60 apple-sidebar flex flex-col justify-between select-none relative z-20">
       <div>
-        {/* macOS Traffic Lights Clearance & App Emblem */}
+        {/* macOS Traffic Lights Clearance & Artisan BrewHub Logo */}
         <div className="pt-9 pb-3 px-4 drag-region">
           <div className="flex items-center gap-2.5 no-drag">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-500 via-amber-400 to-amber-300 flex items-center justify-center shadow-md shadow-amber-500/20 text-white font-bold text-base ring-1 ring-white/20 shrink-0">
-              🍺
-            </div>
+            <BrewHubLogo size={32} />
             <div className="min-w-0">
               <h1 className="font-semibold text-zinc-100 text-[13px] tracking-tight leading-tight truncate">
                 Brew Hub

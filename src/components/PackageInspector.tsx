@@ -7,6 +7,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { CaskItem, FormulaItem, OutdatedPackage } from "../types/brew";
+import { AppIcon } from "./AppIcon";
 
 export type InspectedItem =
   | { type: "cask"; data: CaskItem; outdatedInfo?: OutdatedPackage }
@@ -74,15 +75,12 @@ export const PackageInspector: React.FC<PackageInspectorProps> = ({
 
         {/* Hero Identity */}
         <div className="flex items-center gap-3.5">
-          <div
-            className={`w-14 h-14 app-squircle flex items-center justify-center font-bold text-xl text-white shadow-lg shrink-0 ${
-              isCask
-                ? "bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400"
-                : "bg-gradient-to-tr from-purple-600 via-violet-600 to-fuchsia-400"
-            }`}
-          >
-            {name.charAt(0).toUpperCase()}
-          </div>
+          <AppIcon
+            name={token}
+            desc={desc}
+            isCask={isCask}
+            size="lg"
+          />
           <div className="min-w-0">
             <h3 className="font-bold text-base text-zinc-100 tracking-tight truncate leading-snug">
               {name}
