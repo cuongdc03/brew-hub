@@ -27,20 +27,22 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-2xl bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] ring-1 ring-white/10">
         {/* Window Bar */}
-        <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 mr-2">
-              <span className="w-3 h-3 rounded-full bg-red-500/80 inline-block" />
-              <span className="w-3 h-3 rounded-full bg-amber-500/80 inline-block" />
-              <span className="w-3 h-3 rounded-full bg-emerald-500/80 inline-block" />
+        <div className="px-4 py-3 bg-zinc-900/90 border-b border-white/8 flex items-center justify-between select-none">
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 mr-2">
+              <span className="w-3 h-3 rounded-full bg-red-500/90 inline-block shadow-xs" />
+              <span className="w-3 h-3 rounded-full bg-amber-500/90 inline-block shadow-xs" />
+              <span className="w-3 h-3 rounded-full bg-emerald-500/90 inline-block shadow-xs" />
             </div>
-            <TerminalIcon className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-mono font-medium text-slate-200">{title}</span>
+            <TerminalIcon className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="text-xs font-mono font-medium text-zinc-200 truncate max-w-md">
+              {title}
+            </span>
             {isLoading && (
-              <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full font-mono animate-pulse">
+              <span className="text-[10px] text-amber-400 bg-amber-500/15 border border-amber-500/25 px-2 py-0.5 rounded-full font-mono animate-pulse">
                 Running...
               </span>
             )}
@@ -49,36 +51,38 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
-              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
               title="Copy Output"
             >
-              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
             <button
               onClick={onClose}
-              className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/8 transition-colors cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
         {/* Terminal Body */}
-        <div className="p-4 overflow-y-auto flex-1 font-mono text-xs leading-relaxed text-slate-300 bg-slate-950 select-text">
+        <div className="p-4 overflow-y-auto flex-1 font-mono text-xs leading-relaxed text-zinc-300 bg-zinc-950 select-text">
           {output ? (
-            <pre className="whitespace-pre-wrap break-all">{output}</pre>
+            <pre className="whitespace-pre-wrap break-all selection:bg-amber-500/30 selection:text-white font-mono">
+              {output}
+            </pre>
           ) : (
-            <div className="text-slate-600 italic">No output yet. Waiting for command execution...</div>
+            <div className="text-zinc-600 italic">Waiting for command execution...</div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2 bg-slate-950/50 border-t border-slate-850 flex justify-end">
+        <div className="px-4 py-2.5 bg-zinc-900/60 border-t border-white/6 flex justify-end">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg font-medium transition-colors cursor-pointer"
+            className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white text-xs rounded-xl font-semibold transition-all cursor-pointer border border-white/8"
           >
-            Close
+            Done
           </button>
         </div>
       </div>

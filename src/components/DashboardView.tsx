@@ -9,6 +9,7 @@ import {
   Play,
   RotateCw,
   CheckCircle,
+  Zap,
 } from "lucide-react";
 import {
   CaskItem,
@@ -31,6 +32,7 @@ interface DashboardViewProps {
   onServiceAction: (name: string, action: "start" | "stop" | "restart") => void;
   onOpenDoctor: () => void;
   isActionRunning: boolean;
+  isLoading?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -46,107 +48,115 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onServiceAction,
   onOpenDoctor,
   isActionRunning,
+  isLoading,
 }) => {
   const totalOutdated = (outdated.formulae?.length || 0) + (outdated.casks?.length || 0);
   const runningServices = services.filter((s) => s.status === "started");
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Top Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card: Casks */}
         <div
           onClick={() => onNavigateTab("casks")}
-          className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all group"
+          className="p-5 rounded-2xl border border-white/6 bg-gradient-to-b from-zinc-900/70 to-zinc-950/70 backdrop-blur-xl shadow-lg shadow-black/20 hover:border-blue-500/30 hover:from-blue-950/20 transition-all cursor-pointer group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
               GUI Applications
             </span>
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+            <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 group-hover:scale-110 transition-transform">
               <AppWindow className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-              {casks.length}
+          <div className="mt-4 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-zinc-100 tracking-tight font-mono">
+              {isLoading ? "—" : casks.length}
             </span>
-            <span className="text-xs text-slate-400">installed</span>
+            <span className="text-xs text-zinc-500 font-medium">casks installed</span>
           </div>
         </div>
 
         {/* Card: Formulae */}
         <div
           onClick={() => onNavigateTab("formulae")}
-          className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all group"
+          className="p-5 rounded-2xl border border-white/6 bg-gradient-to-b from-zinc-900/70 to-zinc-950/70 backdrop-blur-xl shadow-lg shadow-black/20 hover:border-purple-500/30 hover:from-purple-950/20 transition-all cursor-pointer group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
               CLI Formulae
             </span>
-            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
+            <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 group-hover:scale-110 transition-transform">
               <Terminal className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-              {formulae.length}
+          <div className="mt-4 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-zinc-100 tracking-tight font-mono">
+              {isLoading ? "—" : formulae.length}
             </span>
-            <span className="text-xs text-slate-400">installed</span>
+            <span className="text-xs text-zinc-500 font-medium">binaries & libs</span>
           </div>
         </div>
 
         {/* Card: Updates */}
         <div
           onClick={() => onNavigateTab("dashboard")}
-          className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all group"
+          className="p-5 rounded-2xl border border-white/6 bg-gradient-to-b from-zinc-900/70 to-zinc-950/70 backdrop-blur-xl shadow-lg shadow-black/20 hover:border-amber-500/30 hover:from-amber-950/20 transition-all cursor-pointer group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Updates Available
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+              Pending Updates
             </span>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 group-hover:scale-110 transition-transform">
               <ArrowUpCircle className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-              {totalOutdated}
+          <div className="mt-4 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-amber-400 tracking-tight font-mono">
+              {isLoading ? "—" : totalOutdated}
             </span>
-            <span className="text-xs text-slate-400">packages pending</span>
+            <span className="text-xs text-zinc-500 font-medium">upgrades ready</span>
           </div>
         </div>
 
         {/* Card: Cleanup */}
         <div
           onClick={() => onNavigateTab("cleanup")}
-          className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all group"
+          className="p-5 rounded-2xl border border-white/6 bg-gradient-to-b from-zinc-900/70 to-zinc-950/70 backdrop-blur-xl shadow-lg shadow-black/20 hover:border-emerald-500/30 hover:from-emerald-950/20 transition-all cursor-pointer group relative overflow-hidden"
         >
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Recoverable Space
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+              Recoverable Cache
             </span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+            <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:scale-110 transition-transform">
               <HardDrive className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 dark:text-slate-100 truncate">
+          <div className="mt-4 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-emerald-400 tracking-tight font-mono truncate">
               {cleanupPreview?.total_space || "0 B"}
             </span>
-            <span className="text-xs text-slate-400">in cache</span>
+            <span className="text-xs text-zinc-500 font-medium">in cache</span>
           </div>
         </div>
       </div>
 
       {/* Quick Action Banner */}
-      <div className="p-5 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 dark:border-amber-500/15 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
-            Quick Maintenance Hub
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Keep your Homebrew environment healthy, updated, and clean.
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-zinc-900/60 to-zinc-900/40 border border-amber-500/20 backdrop-blur-xl flex flex-wrap items-center justify-between gap-4 shadow-xl shadow-black/10">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            <h3 className="font-bold text-zinc-100 text-sm tracking-tight">
+              One-Click Maintenance Hub
+            </h3>
+          </div>
+          <p className="text-xs text-zinc-400">
+            Keep packages updated, clear redundant bottle downloads, and verify system integrity.
           </p>
         </div>
 
@@ -154,27 +164,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             onClick={onRunCleanup}
             disabled={isActionRunning}
-            className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700/80 border border-white/8 text-xs font-semibold text-zinc-200 hover:text-white transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 ring-1 ring-transparent hover:ring-white/10"
           >
-            <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
             Clean Cache
           </button>
 
           <button
             onClick={onRunAutoremove}
             disabled={isActionRunning}
-            className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700/80 border border-white/8 text-xs font-semibold text-zinc-200 hover:text-white transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 ring-1 ring-transparent hover:ring-white/10"
           >
-            <HardDrive className="w-3.5 h-3.5 text-blue-500" />
+            <HardDrive className="w-3.5 h-3.5 text-blue-400" />
             Autoremove Orphans
           </button>
 
           <button
             onClick={onOpenDoctor}
             disabled={isActionRunning}
-            className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700/80 border border-white/8 text-xs font-semibold text-zinc-200 hover:text-white transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50 ring-1 ring-transparent hover:ring-white/10"
           >
-            <Activity className="w-3.5 h-3.5 text-emerald-500" />
+            <Activity className="w-3.5 h-3.5 text-emerald-400" />
             Doctor Health Check
           </button>
         </div>
@@ -182,49 +192,47 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Outdated Packages Panel */}
-        <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900/60 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+        <div className="border border-white/6 rounded-2xl bg-zinc-900/60 backdrop-blur-xl overflow-hidden flex flex-col shadow-lg shadow-black/20">
+          <div className="p-4 border-b border-white/6 flex items-center justify-between bg-zinc-950/40">
             <div className="flex items-center gap-2">
-              <ArrowUpCircle className="w-4 h-4 text-amber-500" />
-              <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <ArrowUpCircle className="w-4 h-4 text-amber-400" />
+              <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
                 Outdated Packages ({totalOutdated})
               </h4>
             </div>
             {totalOutdated > 0 && (
-              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                Action needed
+              <span className="text-[11px] text-amber-400 font-mono font-medium bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                Action Recommended
               </span>
             )}
           </div>
 
-          <div className="p-4 flex-1 overflow-y-auto max-h-80 divide-y divide-slate-100 dark:divide-slate-800/60">
+          <div className="p-3 flex-1 overflow-y-auto max-h-80 divide-y divide-white/4">
             {totalOutdated === 0 ? (
-              <div className="py-8 flex flex-col items-center justify-center text-center">
-                <CheckCircle className="w-8 h-8 text-emerald-500 mb-2" />
-                <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                  All packages are up to date!
-                </p>
-                <p className="text-[11px] text-slate-400">Everything is running latest versions.</p>
+              <div className="py-12 flex flex-col items-center justify-center text-center">
+                <CheckCircle className="w-10 h-10 text-emerald-400 mb-2 opacity-80" />
+                <p className="text-xs font-semibold text-zinc-200">All packages are up to date!</p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">Your system is running the latest versions.</p>
               </div>
             ) : (
               <>
                 {outdated.casks?.map((cask) => (
                   <div
                     key={cask.name}
-                    className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/30 px-2 rounded-lg"
+                    className="py-2.5 px-3 flex items-center justify-between text-xs hover:bg-white/4 rounded-xl transition-colors"
                   >
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        <span className="font-semibold text-zinc-200">
                           {cask.name}
                         </span>
-                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
                           Cask
                         </span>
                       </div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                         {cask.installed_versions.join(", ")} &rarr;{" "}
-                        <span className="text-amber-600 dark:text-amber-400 font-medium">
+                        <span className="text-amber-400 font-medium">
                           {cask.current_version}
                         </span>
                       </div>
@@ -233,7 +241,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <button
                       onClick={() => onUpgradePackage(cask.name, true)}
                       disabled={isActionRunning}
-                      className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium text-[11px] transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-medium text-xs transition-all cursor-pointer shadow-xs disabled:opacity-50"
                     >
                       Update
                     </button>
@@ -243,20 +251,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {outdated.formulae?.map((form) => (
                   <div
                     key={form.name}
-                    className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/30 px-2 rounded-lg"
+                    className="py-2.5 px-3 flex items-center justify-between text-xs hover:bg-white/4 rounded-xl transition-colors"
                   >
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                        <span className="font-semibold text-zinc-200 font-mono">
                           {form.name}
                         </span>
-                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
                           Formula
                         </span>
                       </div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                         {form.installed_versions.join(", ")} &rarr;{" "}
-                        <span className="text-amber-600 dark:text-amber-400 font-medium">
+                        <span className="text-amber-400 font-medium">
                           {form.current_version}
                         </span>
                       </div>
@@ -265,7 +273,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <button
                       onClick={() => onUpgradePackage(form.name, false)}
                       disabled={isActionRunning}
-                      className="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-medium text-[11px] transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-medium text-xs transition-all cursor-pointer shadow-xs disabled:opacity-50"
                     >
                       Update
                     </button>
@@ -277,50 +285,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Services Status Panel */}
-        <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900/60 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+        <div className="border border-white/6 rounded-2xl bg-zinc-900/60 backdrop-blur-xl overflow-hidden flex flex-col shadow-lg shadow-black/20">
+          <div className="p-4 border-b border-white/6 flex items-center justify-between bg-zinc-950/40">
             <div className="flex items-center gap-2">
-              <Server className="w-4 h-4 text-emerald-500" />
-              <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Background Services ({runningServices.length} Active)
+              <Server className="w-4 h-4 text-emerald-400" />
+              <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+                Active Services ({runningServices.length} Running)
               </h4>
             </div>
             <button
               onClick={() => onNavigateTab("services")}
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+              className="text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer"
             >
-              View all
+              Manage all &rarr;
             </button>
           </div>
 
-          <div className="p-4 flex-1 overflow-y-auto max-h-80 divide-y divide-slate-100 dark:divide-slate-800/60">
+          <div className="p-3 flex-1 overflow-y-auto max-h-80 divide-y divide-white/4">
             {services.length === 0 ? (
-              <div className="py-8 flex flex-col items-center justify-center text-center">
-                <p className="text-xs text-slate-400">No background services configured</p>
+              <div className="py-12 flex flex-col items-center justify-center text-center">
+                <p className="text-xs text-zinc-500">No background services configured</p>
               </div>
             ) : (
               services.map((svc) => (
                 <div
                   key={svc.name}
-                  className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/30 px-2 rounded-lg"
+                  className="py-2.5 px-3 flex items-center justify-between text-xs hover:bg-white/4 rounded-xl transition-colors"
                 >
                   <div className="flex items-center gap-2.5">
                     <span
-                      className={`w-2 h-2 rounded-full ${
+                      className={`w-2.5 h-2.5 rounded-full ${
                         svc.status === "started"
-                          ? "bg-emerald-500 animate-pulse"
+                          ? "bg-emerald-400 shadow-sm shadow-emerald-400/80 animate-pulse"
                           : svc.status === "error"
-                          ? "bg-red-500"
-                          : "bg-slate-400"
+                          ? "bg-red-400 shadow-sm shadow-red-400/80"
+                          : "bg-zinc-600"
                       }`}
                     />
                     <div>
-                      <div className="font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                      <div className="font-semibold text-zinc-200 font-mono">
                         {svc.name}
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        status: <span className="capitalize">{svc.status}</span>
-                        {svc.user && ` • by ${svc.user}`}
+                      <div className="text-[11px] text-zinc-500 mt-0.5">
+                        Status: <span className="capitalize font-medium text-zinc-400">{svc.status}</span>
+                        {svc.user && ` • User: ${svc.user}`}
                       </div>
                     </div>
                   </div>
@@ -332,14 +340,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           onClick={() => onServiceAction(svc.name, "restart")}
                           disabled={isActionRunning}
                           title="Restart"
-                          className="p-1 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
                         >
                           <RotateCw className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => onServiceAction(svc.name, "stop")}
                           disabled={isActionRunning}
-                          className="px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-medium transition-colors"
+                          className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-[11px] font-medium transition-colors cursor-pointer"
                         >
                           Stop
                         </button>
@@ -348,9 +356,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <button
                         onClick={() => onServiceAction(svc.name, "start")}
                         disabled={isActionRunning}
-                        className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-medium transition-colors flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium transition-colors flex items-center gap-1 cursor-pointer"
                       >
-                        <Play className="w-3 h-3" />
+                        <Play className="w-3 h-3 fill-current" />
                         Start
                       </button>
                     )}

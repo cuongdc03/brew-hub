@@ -7,6 +7,7 @@ interface ServicesViewProps {
   searchTerm: string;
   onServiceAction: (name: string, action: "start" | "stop" | "restart") => void;
   isActionRunning: boolean;
+  isLoading?: boolean;
 }
 
 export const ServicesView: React.FC<ServicesViewProps> = ({
@@ -14,38 +15,46 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
   searchTerm,
   onServiceAction,
   isActionRunning,
+  isLoading,
 }) => {
   const filtered = services.filter((s) => {
     const q = searchTerm.toLowerCase();
     return s.name.toLowerCase().includes(q) || s.status.toLowerCase().includes(q);
   });
 
+  const runningCount = services.filter((s) => s.status === "started").length;
+
   return (
-    <div className="p-6 space-y-4">
-      {/* Description header */}
-      <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between text-xs">
+    <div className="p-6 space-y-5 max-w-7xl mx-auto">
+      {/* Banner */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-zinc-900/60 to-zinc-900/40 border border-emerald-500/20 backdrop-blur-xl flex flex-wrap items-center justify-between gap-4 shadow-xl shadow-black/10">
         <div>
-          <h4 className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
+          <h4 className="font-bold text-zinc-100 text-sm tracking-tight flex items-center gap-2">
+            <Server className="w-4 h-4 text-emerald-400" />
             macOS LaunchDaemons & LaunchAgents
           </h4>
-          <p className="text-slate-500 dark:text-slate-400">
-            Start, stop, or restart background system daemons managed by Homebrew Services.
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Manage system services and background daemons configured through Homebrew.
           </p>
         </div>
         <div className="text-right">
-          <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-            {services.filter((s) => s.status === "started").length}
-          </span>{" "}
-          of {services.length} running
+          <span className="font-mono font-bold text-emerald-400 text-sm">{runningCount}</span>{" "}
+          <span className="text-xs text-zinc-400">of {services.length} running</span>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="py-16 text-center text-slate-400">
-          <Server className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p className="text-sm font-medium">No Homebrew services found</p>
-          <p className="text-xs text-slate-500 mt-1">
-            Install services like nginx, redis, or postgresql via Homebrew to manage them here.
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-36 rounded-2xl glass-card animate-shimmer" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-24 text-center text-zinc-500 border border-dashed border-white/8 rounded-2xl">
+          <Server className="w-12 h-12 mx-auto mb-3 opacity-20" />
+          <p className="text-sm font-semibold text-zinc-400">No services found</p>
+          <p className="text-xs text-zinc-600 mt-1">
+            Install background services (e.g., redis, nginx, postgresql) to control them here
           </p>
         </div>
       ) : (
@@ -57,49 +66,49 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
             return (
               <div
                 key={svc.name}
-                className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 shadow-xs flex flex-col justify-between"
+                className="p-5 rounded-2xl border border-white/6 bg-gradient-to-b from-zinc-900/60 to-zinc-950/60 backdrop-blur-xl shadow-lg shadow-black/20 hover:border-white/12 transition-all flex flex-col justify-between group"
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-3">
                       <span
                         className={`w-2.5 h-2.5 rounded-full ${
                           isRunning
-                            ? "bg-emerald-500 shadow-xs shadow-emerald-500/50"
+                            ? "bg-emerald-400 shadow-sm shadow-emerald-400/80 animate-pulse"
                             : isError
-                            ? "bg-red-500 shadow-xs shadow-red-500/50"
-                            : "bg-slate-300 dark:bg-slate-700"
+                            ? "bg-red-400 shadow-sm shadow-red-400/80"
+                            : "bg-zinc-600"
                         }`}
                       />
-                      <h4 className="font-mono font-semibold text-sm text-slate-900 dark:text-slate-100">
+                      <h4 className="font-mono font-bold text-sm text-zinc-100 group-hover:text-amber-400 transition-colors">
                         {svc.name}
                       </h4>
                     </div>
 
                     <span
-                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${
+                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full font-mono ${
                         isRunning
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                          ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
                           : isError
-                          ? "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700"
+                          ? "bg-red-500/15 text-red-300 border border-red-500/30"
+                          : "bg-zinc-800 text-zinc-400 border border-white/5"
                       }`}
                     >
                       {svc.status}
                     </span>
                   </div>
 
-                  <div className="mt-3 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <div className="mt-4 space-y-1.5 text-xs text-zinc-400">
                     {svc.user && (
-                      <div className="flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Run by user: <strong className="text-slate-700 dark:text-slate-300">{svc.user}</strong></span>
+                      <div className="flex items-center gap-2">
+                        <User className="w-3.5 h-3.5 text-zinc-500" />
+                        <span>Run by user: <strong className="text-zinc-200">{svc.user}</strong></span>
                       </div>
                     )}
 
                     {svc.file && (
-                      <div className="flex items-center gap-1.5 font-mono text-[11px] truncate">
-                        <FileCode className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-500 truncate">
+                        <FileCode className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
                         <span className="truncate" title={svc.file}>
                           {svc.file}
                         </span>
@@ -108,13 +117,13 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-end gap-2">
+                <div className="mt-5 pt-3.5 border-t border-white/6 flex items-center justify-end gap-2">
                   {isRunning ? (
                     <>
                       <button
                         onClick={() => onServiceAction(svc.name, "restart")}
                         disabled={isActionRunning}
-                        className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-3 py-1.5 rounded-xl border border-white/8 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                       >
                         <RotateCw className="w-3.5 h-3.5" />
                         Restart
@@ -122,7 +131,7 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                       <button
                         onClick={() => onServiceAction(svc.name, "stop")}
                         disabled={isActionRunning}
-                        className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                        className="px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/25 text-red-300 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                       >
                         <Square className="w-3 h-3 fill-current" />
                         Stop
@@ -132,10 +141,10 @@ export const ServicesView: React.FC<ServicesViewProps> = ({
                     <button
                       onClick={() => onServiceAction(svc.name, "start")}
                       disabled={isActionRunning}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-emerald-500/20 disabled:opacity-50"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
-                      Start Service
+                      Start Daemon
                     </button>
                   )}
                 </div>

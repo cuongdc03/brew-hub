@@ -1,4 +1,5 @@
-import { Sparkles, HardDrive, Trash2, FolderMinus } from "lucide-react";
+import React from "react";
+import { Sparkles, HardDrive, Trash2, FolderMinus, ShieldCheck } from "lucide-react";
 import { CleanupPreview } from "../types/brew";
 
 interface CleanupViewProps {
@@ -6,6 +7,7 @@ interface CleanupViewProps {
   onRunCleanup: () => void;
   onRunAutoremove: () => void;
   isActionRunning: boolean;
+  isLoading?: boolean;
 }
 
 export const CleanupView: React.FC<CleanupViewProps> = ({
@@ -13,25 +15,31 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
   onRunCleanup,
   onRunAutoremove,
   isActionRunning,
+  isLoading,
 }) => {
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Hero card for storage */}
-      <div className="p-6 rounded-2xl bg-gradient-to-br from-purple-500/10 via-indigo-500/5 to-transparent border border-purple-500/20 dark:border-purple-500/15">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="p-7 rounded-3xl bg-gradient-to-br from-purple-500/15 via-zinc-900/80 to-zinc-950 border border-purple-500/25 backdrop-blur-2xl shadow-2xl shadow-purple-950/20 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
+            <div className="flex items-center gap-2 text-purple-400">
               <Sparkles className="w-5 h-5" />
-              <span className="text-xs font-semibold uppercase tracking-wider">
+              <span className="text-xs font-bold uppercase tracking-wider">
                 Homebrew Storage Cleaner
               </span>
             </div>
-            <h3 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
-              {preview?.total_space || "0 B"}
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-lg">
-              Recover disk space by purging old downloaded tarballs, obsolete version bottles, and
-              build cache files stored in ~/Library/Caches/Homebrew.
+            <div className="flex items-baseline gap-3">
+              <h3 className="text-4xl sm:text-5xl font-black text-zinc-100 tracking-tight font-mono">
+                {preview?.total_space || "0 B"}
+              </h3>
+              <span className="text-xs text-purple-300 font-medium">recoverable disk space</span>
+            </div>
+            <p className="text-xs text-zinc-400 max-w-xl leading-relaxed">
+              Purges obsolete bottles, outdated download archives, and cached build assets from{" "}
+              <code className="text-zinc-300 bg-zinc-800/80 px-1.5 py-0.5 rounded font-mono">~/Library/Caches/Homebrew</code>.
             </p>
           </div>
 
@@ -39,7 +47,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             <button
               onClick={onRunCleanup}
               disabled={isActionRunning}
-              className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-md shadow-purple-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ring-1 ring-white/20"
             >
               <Trash2 className="w-4 h-4" />
               Purge All Cache
@@ -48,9 +56,9 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             <button
               onClick={onRunAutoremove}
               disabled={isActionRunning}
-              className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 text-xs font-semibold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-3 rounded-xl bg-zinc-800/80 hover:bg-zinc-750 border border-white/8 text-zinc-200 text-xs font-semibold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
-              <FolderMinus className="w-4 h-4 text-indigo-500" />
+              <FolderMinus className="w-4 h-4 text-purple-400" />
               Autoremove Orphans
             </button>
           </div>
@@ -58,38 +66,44 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
       </div>
 
       {/* Details List */}
-      <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900/60 overflow-hidden shadow-xs">
-        <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+      <div className="border border-white/6 rounded-2xl bg-zinc-900/60 backdrop-blur-xl overflow-hidden shadow-lg shadow-black/20">
+        <div className="p-4 border-b border-white/6 flex items-center justify-between bg-zinc-950/40">
           <div className="flex items-center gap-2">
-            <HardDrive className="w-4 h-4 text-purple-500" />
-            <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Recoverable Items ({preview?.items.length || 0})
+            <HardDrive className="w-4 h-4 text-purple-400" />
+            <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+              Scanned Cache Files ({preview?.items.length || 0})
             </h4>
           </div>
-          <span className="text-xs text-slate-400 font-mono">
-            {preview?.total_space || "0 B"} pending removal
+          <span className="text-xs text-zinc-400 font-mono">
+            {preview?.total_space || "0 B"} total
           </span>
         </div>
 
-        <div className="p-4 divide-y divide-slate-100 dark:divide-slate-800/60 max-h-[460px] overflow-y-auto">
-          {!preview || preview.items.length === 0 ? (
-            <div className="py-12 text-center text-slate-400">
-              <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-30 text-purple-500" />
-              <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                Cache is clean! No space to reclaim right now.
+        <div className="p-3 divide-y divide-white/4 max-h-[460px] overflow-y-auto">
+          {isLoading ? (
+            <div className="py-16 text-center text-zinc-500">
+              <Sparkles className="w-8 h-8 mx-auto mb-2 text-purple-400 animate-spin opacity-50" />
+              <p className="text-xs">Analyzing cache directory...</p>
+            </div>
+          ) : !preview || preview.items.length === 0 ? (
+            <div className="py-16 text-center text-zinc-500">
+              <ShieldCheck className="w-12 h-12 mx-auto mb-3 text-emerald-400/80" />
+              <p className="text-sm font-semibold text-zinc-300">
+                Your disk cache is completely clean!
               </p>
+              <p className="text-xs text-zinc-500 mt-1">No redundant downloaded packages found.</p>
             </div>
           ) : (
             preview.items.map((item, idx) => (
               <div
                 key={idx}
-                className="py-2.5 flex items-center justify-between text-xs hover:bg-slate-50 dark:hover:bg-slate-800/30 px-2 rounded-lg gap-4"
+                className="py-2.5 px-3 flex items-center justify-between text-xs hover:bg-white/4 rounded-xl transition-colors gap-4"
               >
-                <div className="font-mono text-slate-600 dark:text-slate-300 truncate max-w-xl">
+                <div className="font-mono text-zinc-400 truncate max-w-xl text-[11px]">
                   {item.path}
                 </div>
                 {item.size && (
-                  <span className="font-mono font-medium text-purple-600 dark:text-purple-400 shrink-0 text-[11px] bg-purple-500/10 px-2 py-0.5 rounded">
+                  <span className="font-mono font-semibold text-purple-300 shrink-0 text-[11px] bg-purple-500/15 border border-purple-500/25 px-2 py-0.5 rounded-md">
                     {item.size}
                   </span>
                 )}

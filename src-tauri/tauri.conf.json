@@ -13,10 +13,12 @@
     "windows": [
       {
         "title": "Brew Hub",
-        "width": 1080,
-        "height": 740,
-        "minWidth": 860,
-        "minHeight": 580
+        "width": 1120,
+        "height": 760,
+        "minWidth": 880,
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
