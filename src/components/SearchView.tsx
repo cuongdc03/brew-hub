@@ -15,32 +15,44 @@ export const SearchView: React.FC<SearchViewProps> = ({ onInstall, isActionRunni
   const [results, setResults] = useState<SearchResult | null>(null);
   const [activeTab, setActiveTab] = useState<"casks" | "formulae">("casks");
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  const [searchError, setSearchError] = useState<string | null>(null);
 
+  const performSearch = async (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+
+    setQuery(trimmed);
+    setSearchError(null);
     try {
       setIsSearching(true);
-      const res = await searchPackages(query.trim());
+      const res = await searchPackages(trimmed);
       setResults(res);
       if (res.casks.length === 0 && res.formulae.length > 0) {
         setActiveTab("formulae");
       } else {
         setActiveTab("casks");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setSearchError(err?.message || "Search failed to execute. Ensure Homebrew is functioning.");
     } finally {
       setIsSearching(false);
     }
   };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    performSearch(query);
+  };
+
+  const popularSearches = ["docker", "firefox", "raycast", "neovim", "visual-studio-code", "git", "node", "python"];
 
   const totalResults = results ? results.casks.length + results.formulae.length : 0;
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Search Input Banner */}
-      <form onSubmit={handleSearch} className="max-w-2xl mx-auto space-y-2.5">
+      <form onSubmit={handleSearch} className="max-w-2xl mx-auto space-y-3">
         <div className="relative group">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 group-focus-within:text-blue-400 transition-colors" />
           <input
@@ -49,6 +61,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onInstall, isActionRunni
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full pl-10 pr-24 py-3 text-xs rounded-xl border border-white/8 bg-black/40 backdrop-blur-xl shadow-lg text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all font-medium"
+            autoFocus
           />
           <button
             type="submit"
@@ -58,9 +71,27 @@ export const SearchView: React.FC<SearchViewProps> = ({ onInstall, isActionRunni
             {isSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Search"}
           </button>
         </div>
-        <p className="text-center text-[11px] text-zinc-500">
-          Discover and install thousands of open-source CLI utilities and macOS desktop applications
-        </p>
+
+        {/* Quick Suggestion Pills */}
+        <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+          <span className="text-[11px] text-zinc-500 mr-1">Popular:</span>
+          {popularSearches.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => performSearch(s)}
+              className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-white/[0.04] hover:bg-white/[0.08] text-zinc-400 hover:text-zinc-200 border border-white/5 transition-all cursor-pointer"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {searchError && (
+          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-xs text-center">
+            {searchError}
+          </div>
+        )}
       </form>
 
       {/* Results View */}

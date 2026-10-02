@@ -277,46 +277,31 @@ pub async fn package_operation(
 }
 
 pub async fn search_brew(query: &str) -> Result<SearchResult, String> {
-    let mut cmd = create_brew_command();
-    cmd.args(["search", query]);
-
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to search brew: {}", e))?;
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let mut formulae = Vec::new();
-    let mut casks = Vec::new();
-
-    let mut current_section = "";
-
-    for line in stdout_str.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("==> Formulae") {
-            current_section = "formulae";
-            continue;
-        } else if trimmed.starts_with("==> Casks") {
-            current_section = "casks";
-            continue;
-        }
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-        for token in tokens {
-            if token.starts_with('(') && token.ends_with(')') {
-                continue;
-            }
-            if current_section == "formulae" {
-                formulae.push(token.to_string());
-            } else if current_section == "casks" {
-                casks.push(token.to_string());
-            }
-        }
+    let trimmed_query = query.trim();
+    if trimmed_query.is_empty() {
+        return Ok(SearchResult {
+            formulae: Vec::new(),
+            casks: Vec::new(),
+        });
     }
+
+    // Run --cask and --formula concurrently for precision and speed
+    let mut cask_cmd = create_brew_command();
+    cask_cmd.args(["search", "--cask", trimmed_query]);
+
+    let mut formula_cmd = create_brew_command();
+    formula_cmd.args(["search", "--formula", trimmed_query]);
+
+    let (cask_res, formula_res) = tokio::join!(cask_cmd.output(), formula_cmd.output());
+
+    let casks = match cask_res {
+        Ok(output) => parse_search_output(&String::from_utf8_lossy(&output.stdout)),
+        Err(_) => Vec::new(),
+    };
+    let formulae = match formula_res {
+        Ok(output) => parse_search_output(&String::from_utf8_lossy(&output.stdout)),
+        Err(_) => Vec::new(),
+    };
 
     Ok(SearchResult { formulae, casks })
 }
@@ -336,3 +321,61 @@ pub async fn check_brew_doctor() -> Result<CommandOutput, String> {
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
 }
+
+pub fn parse_search_output(stdout: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty()
+            || trimmed.starts_with("==>")
+            || trimmed.starts_with("Error:")
+            || trimmed.starts_with("Warning:")
+        {
+            continue;
+        }
+        for token in trimmed.split_whitespace() {
+            if (token.starts_with('(') && token.ends_with(')')) || token == "✔" {
+                continue;
+            }
+            items.push(token.to_string());
+        }
+    }
+    items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_search_output() {
+        let sample = "firefoxpwa\nfirefly (deprecated)\nfirefox ✔\n";
+        let parsed = parse_search_output(sample);
+        assert_eq!(parsed, vec!["firefoxpwa", "firefly", "firefox"]);
+    }
+
+    #[test]
+    fn test_parse_search_output_empty_and_noise() {
+        let sample = "\n  \n==> Formulae\ngit  git-lfs\n==> Casks\ngitkraken\nError: No formulae found\nWarning: Something\n";
+        let parsed = parse_search_output(sample);
+        assert_eq!(parsed, vec!["git", "git-lfs", "gitkraken"]);
+    }
+
+    #[tokio::test]
+    async fn test_search_brew_nonexistent_package() {
+        let result = search_brew("nonexistentpackage123456789xyz").await;
+        assert!(result.is_ok());
+        let search_res = result.unwrap();
+        assert!(search_res.formulae.is_empty());
+        assert!(search_res.casks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_brew_existing_package() {
+        let result = search_brew("git").await;
+        assert!(result.is_ok());
+        let search_res = result.unwrap();
+        assert!(search_res.formulae.contains(&"git".to_string()));
+    }
+}
+
