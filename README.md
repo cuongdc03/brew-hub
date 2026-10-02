@@ -67,3 +67,15 @@ pnpm tauri dev
 # Builds native macOS .app and .dmg bundles in src-tauri/target/release/bundle
 pnpm tauri build
 ```
+
+---
+
+## 🔒 Security & Privilege Model
+
+Brew Hub operates as a client on top of the native Homebrew executable. For privileged actions (such as removing casks with launch services, root helpers, or system daemons), Brew Hub uses native macOS authorization (`SUDO_ASKPASS`) via AppleScript dialogs. No passwords or credentials are ever stored, cached, or logged.
+
+---
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
