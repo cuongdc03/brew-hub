@@ -61,6 +61,45 @@ pub fn get_brew_bin() -> PathBuf {
     PathBuf::from("brew")
 }
 
+pub fn get_or_create_askpass_script() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let cache_dir = std::env::temp_dir().join("brew-hub");
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let script_path = cache_dir.join("brew-hub-askpass.sh");
+
+        let script_content = r#"#!/bin/sh
+exec /usr/bin/osascript -e '
+tell application "System Events"
+    activate
+    set theResp to display dialog "Brew Hub requires administrator privileges to modify system packages:" default answer "" with hidden answer with icon caution with title "Brew Hub Authorization" buttons {"Cancel", "OK"} default button "OK"
+    return text returned of theResp
+end tell
+'
+"#;
+
+        if !script_path.exists() {
+            if let Ok(()) = std::fs::write(&script_path, script_content) {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
+                }
+            }
+        }
+
+        if script_path.exists() {
+            Some(script_path)
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 pub fn create_brew_command() -> Command {
     let brew_bin = get_brew_bin();
     let mut cmd = Command::new(brew_bin);
@@ -74,6 +113,12 @@ pub fn create_brew_command() -> Command {
     cmd.env("PATH", new_path);
     cmd.env("HOMEBREW_NO_AUTO_UPDATE", "1");
     cmd.env("HOMEBREW_NO_EMOJI", "0");
+
+    // Enable SUDO_ASKPASS so brew uninstall / brew upgrade can prompt in GUI without hanging
+    if let Some(askpass_path) = get_or_create_askpass_script() {
+        cmd.env("SUDO_ASKPASS", askpass_path);
+    }
+
     cmd
 }
 
@@ -376,6 +421,47 @@ mod tests {
         assert!(result.is_ok());
         let search_res = result.unwrap();
         assert!(search_res.formulae.contains(&"git".to_string()));
+    }
+
+    #[test]
+    fn test_get_or_create_askpass_script() {
+        let script = get_or_create_askpass_script();
+        #[cfg(target_os = "macos")]
+        {
+            assert!(script.is_some());
+            let path = script.unwrap();
+            assert!(path.exists());
+            assert!(path.ends_with("brew-hub-askpass.sh"));
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let metadata = std::fs::metadata(&path).unwrap();
+                let mode = metadata.permissions().mode();
+                assert_eq!(mode & 0o777, 0o755);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(script.is_none());
+        }
+    }
+
+    #[test]
+    fn test_create_brew_command_askpass_env() {
+        let cmd = create_brew_command();
+        #[cfg(target_os = "macos")]
+        {
+            let envs: std::collections::HashMap<_, _> = cmd
+                .as_std()
+                .get_envs()
+                .filter_map(|(k, v)| v.map(|val| (k.to_os_string(), val.to_os_string())))
+                .collect();
+            assert!(envs.contains_key(std::ffi::OsStr::new("SUDO_ASKPASS")));
+            let sudo_askpass = envs.get(std::ffi::OsStr::new("SUDO_ASKPASS")).unwrap();
+            let askpass_path = PathBuf::from(sudo_askpass);
+            assert!(askpass_path.exists());
+            assert!(askpass_path.ends_with("brew-hub-askpass.sh"));
+        }
     }
 }
 

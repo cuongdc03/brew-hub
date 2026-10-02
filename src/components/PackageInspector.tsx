@@ -212,6 +212,11 @@ export const PackageInspector: React.FC<PackageInspectorProps> = ({
                   <span className="font-mono text-zinc-200 font-semibold">{name}</span>?
                   This will remove the package binaries and associated files from your machine.
                 </p>
+                {isCask && (
+                  <p className="text-[11px] text-amber-400/90 mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 leading-normal">
+                    Note: Applications with launch services or root files will prompt for macOS administrator authorization.
+                  </p>
+                )}
               </div>
             </div>
 

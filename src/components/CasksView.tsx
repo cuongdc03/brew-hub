@@ -340,6 +340,9 @@ export const CasksView: React.FC<CasksViewProps> = ({
                   <span className="font-mono text-zinc-200 font-semibold">{caskToUninstall}</span>?
                   This will remove the application bundle from your system.
                 </p>
+                <p className="text-[11px] text-amber-400/90 mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 leading-normal">
+                  Note: Apps with system daemons, launch agents, or protected files will prompt for macOS administrator authorization.
+                </p>
               </div>
             </div>
 
