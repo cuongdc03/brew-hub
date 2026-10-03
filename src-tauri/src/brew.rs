@@ -410,6 +410,22 @@ pub fn parse_search_output(stdout: &str) -> Vec<String> {
     items
 }
 
+pub fn is_valid_cask_token(token: &str) -> bool {
+    if token.is_empty() || token.len() > 128 {
+        return false;
+    }
+    let first = match token.chars().next() {
+        Some(c) => c,
+        None => return false,
+    };
+    if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+        return false;
+    }
+    token.chars().all(|c| {
+        c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '@' || c == '.' || c == '+'
+    })
+}
+
 #[derive(Debug, Clone)]
 struct CaskCatalogItem {
     token: String,
@@ -437,6 +453,9 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                                     if let Some(casks_map) = val.get("casks").and_then(|c| c.as_object()) {
                                         let mut items = Vec::new();
                                         for (token, obj) in casks_map {
+                                            if !is_valid_cask_token(token) {
+                                                continue;
+                                            }
                                             let name = obj
                                                 .get("names")
                                                 .and_then(|n| n.as_array())
@@ -502,18 +521,18 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
         }
     }
 
-    // 2. Fallback: check /tmp/cask.json or app cache
-    let fallback_paths = [
-        PathBuf::from("/tmp/cask.json"),
-        std::env::temp_dir().join("brew-hub").join("cask.json"),
-    ];
-    for p in &fallback_paths {
-        if p.exists() {
-            if let Ok(file) = std::fs::File::open(p) {
+    // 2. Secure Fallback: check app's dedicated cache directory in user's Library
+    if let Ok(home) = std::env::var("HOME") {
+        let app_cache = PathBuf::from(home).join("Library/Caches/com.cuong.brew-hub/cask.json");
+        if app_cache.exists() {
+            if let Ok(file) = std::fs::File::open(&app_cache) {
                 if let Ok(casks_arr) = serde_json::from_reader::<_, Vec<serde_json::Value>>(file) {
                     let mut items = Vec::new();
                     for obj in casks_arr {
                         if let Some(token) = obj.get("token").and_then(|v| v.as_str()) {
+                            if !is_valid_cask_token(token) {
+                                continue;
+                            }
                             let name = obj
                                 .get("name")
                                 .and_then(|n| n.as_array())
@@ -715,6 +734,13 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
 }
 
 pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
+    if !is_valid_cask_token(token) {
+        return Err(format!(
+            "Invalid cask token '{}': token must be a standard Homebrew cask identifier without slashes or special characters",
+            token
+        ));
+    }
+
     let mut cmd = create_brew_command();
     cmd.args(["install", "--cask", "--adopt", token]);
 
@@ -1006,6 +1032,33 @@ mod tests {
             assert!(!app.cask_token.is_empty());
             assert!(!app.name.is_empty());
         }
+    }
+
+    #[test]
+    fn test_is_valid_cask_token() {
+        assert!(is_valid_cask_token("google-chrome"));
+        assert!(is_valid_cask_token("visual-studio-code"));
+        assert!(is_valid_cask_token("slack"));
+        assert!(is_valid_cask_token("1password"));
+        assert!(is_valid_cask_token("dotnet@8"));
+        assert!(is_valid_cask_token("font-fira-code"));
+
+        // Reject malicious tokens / tap injection / path traversal
+        assert!(!is_valid_cask_token("evil/tap/slack"));
+        assert!(!is_valid_cask_token("../../etc/passwd"));
+        assert!(!is_valid_cask_token("cask; rm -rf /"));
+        assert!(!is_valid_cask_token("-invalid-start"));
+        assert!(!is_valid_cask_token("UPPERCASE"));
+        assert!(!is_valid_cask_token("has space"));
+        assert!(!is_valid_cask_token(""));
+    }
+
+    #[tokio::test]
+    async fn test_adopt_cask_package_rejects_malicious_tokens() {
+        let res = adopt_cask_package("evil/tap/malicious").await;
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("Invalid cask token"));
     }
 }
 
