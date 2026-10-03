@@ -36,6 +36,11 @@ interface DashboardViewProps {
   isActionRunning: boolean;
   isLoading?: boolean;
   onSelectItem: (item: InspectedItem) => void;
+  includeGreedy?: boolean;
+  onToggleGreedy?: (val: boolean) => void;
+  ignoredCasks?: string[];
+  onTogglePin?: (name: string, isPinned: boolean) => void;
+  onToggleIgnoreCask?: (token: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -53,7 +58,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isActionRunning,
   isLoading,
   onSelectItem,
+  includeGreedy = false,
+  onToggleGreedy,
+  ignoredCasks = [],
+  onTogglePin,
+  onToggleIgnoreCask,
 }) => {
+  const actionableFormulae = (outdated.formulae || []).filter((f) => !f.pinned);
+  const pinnedFormulae = (outdated.formulae || []).filter((f) => f.pinned);
+  const actionableCasks = (outdated.casks || []).filter((c) => !ignoredCasks.includes(c.name));
+  const ignoredCasksList = (outdated.casks || []).filter((c) => ignoredCasks.includes(c.name));
+  const heldBackCount = pinnedFormulae.length + ignoredCasksList.length;
+  const totalActionable = actionableFormulae.length + actionableCasks.length;
   const totalOutdated = (outdated.formulae?.length || 0) + (outdated.casks?.length || 0);
   const runningServices = services.filter((s) => s.status === "started");
 
@@ -118,9 +134,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl font-bold text-[#FF9F0A] font-mono tracking-tight">
-              {isLoading ? "—" : totalOutdated}
+              {isLoading ? "—" : totalActionable}
             </span>
-            <span className="text-xs text-zinc-500">available</span>
+            <span className="text-xs text-zinc-500">
+              {totalOutdated > totalActionable
+                ? `ready (${totalOutdated - totalActionable} held back)`
+                : "available"}
+            </span>
           </div>
         </div>
 
@@ -195,13 +215,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center gap-2">
               <ArrowUpCircle className="w-4 h-4 text-[#FF9F0A]" />
               <h4 className="text-xs font-semibold text-zinc-200">
-                Pending Updates ({totalOutdated})
+                Pending Updates ({totalActionable})
               </h4>
+              {heldBackCount > 0 && (
+                <span className="text-[10px] text-zinc-500 font-mono">
+                  ({heldBackCount} held back/ignored)
+                </span>
+              )}
             </div>
-            {totalOutdated > 0 && (
-              <span className="text-[10px] text-[#FF9F0A] font-mono px-2 py-0.5 rounded-full bg-[#FF9F0A]/10 border border-[#FF9F0A]/20">
-                Action required
-              </span>
+            {onToggleGreedy && (
+              <button
+                onClick={() => onToggleGreedy(!includeGreedy)}
+                className={`px-2 py-0.5 rounded-lg border text-[10px] font-medium transition-all flex items-center gap-1 cursor-pointer ${
+                  includeGreedy
+                    ? "bg-[#FF9F0A]/15 border-[#FF9F0A]/30 text-[#FF9F0A]"
+                    : "bg-white/[0.04] border-white/8 text-zinc-400 hover:text-zinc-200"
+                }`}
+                title="Toggle greedy mode to include auto-updating casks"
+              >
+                <span>Greedy:</span>
+                <span className="font-semibold">{includeGreedy ? "ON" : "OFF"}</span>
+              </button>
             )}
           </div>
 
@@ -216,6 +250,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <>
                 {outdated.casks?.map((cask) => {
                   const fullCask = casks.find((c) => c.token === cask.name);
+                  const isIgnored = ignoredCasks.includes(cask.name);
                   return (
                     <div
                       key={cask.name}
@@ -237,6 +272,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <span className="text-[10px] uppercase font-mono px-1 py-0.2 rounded bg-blue-500/10 text-blue-400">
                               Cask
                             </span>
+                            {fullCask?.auto_updates && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">
+                                Self-updating
+                              </span>
+                            )}
+                            {isIgnored && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-zinc-500/20 text-zinc-400 border border-zinc-500/30 font-mono">
+                                Ignored
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                             {cask.installed_versions.join(", ")} &rarr;{" "}
@@ -245,22 +290,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                       </div>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpgradePackage(cask.name, true);
-                        }}
-                        disabled={isActionRunning}
-                        className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
-                      >
-                        Update
-                      </button>
+                      {isIgnored ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-zinc-500 font-mono px-2 py-0.5 rounded bg-zinc-500/10">
+                            Ignored
+                          </span>
+                          {onToggleIgnoreCask && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleIgnoreCask(cask.name);
+                              }}
+                              className="text-[10px] text-zinc-400 hover:text-zinc-200 underline cursor-pointer"
+                            >
+                              Unignore
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          {onToggleIgnoreCask && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onToggleIgnoreCask(cask.name);
+                              }}
+                              className="px-2 py-0.5 rounded bg-zinc-500/10 hover:bg-zinc-500/20 text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                              title="Ignore updates for this cask"
+                            >
+                              Ignore
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpgradePackage(cask.name, true);
+                            }}
+                            disabled={isActionRunning}
+                            className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
+                          >
+                            Update
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
 
                 {outdated.formulae?.map((form) => {
                   const fullForm = formulae.find((f) => f.name === form.name);
+                  const isPinned = form.pinned || fullForm?.pinned;
                   return (
                     <div
                       key={form.name}
@@ -282,6 +361,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <span className="text-[10px] uppercase font-mono px-1 py-0.2 rounded bg-purple-500/10 text-purple-400">
                               Formula
                             </span>
+                            {isPinned && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono">
+                                📌 Pinned
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                             {form.installed_versions.join(", ")} &rarr;{" "}
@@ -290,16 +374,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                       </div>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpgradePackage(form.name, false);
-                        }}
-                        disabled={isActionRunning}
-                        className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
-                      >
-                        Update
-                      </button>
+                      {isPinned ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-amber-400/80 font-mono px-2 py-0.5 rounded bg-amber-500/10">
+                            Held back
+                          </span>
+                          {onTogglePin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onTogglePin(form.name, true);
+                              }}
+                              className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                            >
+                              Unpin
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          {onTogglePin && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onTogglePin(form.name, false);
+                              }}
+                              className="px-2 py-0.5 rounded bg-zinc-500/10 hover:bg-zinc-500/20 text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                              title="Pin this formula to prevent updates"
+                            >
+                              Pin
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUpgradePackage(form.name, false);
+                            }}
+                            disabled={isActionRunning}
+                            className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
+                          >
+                            Update
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

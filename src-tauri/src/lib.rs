@@ -3,10 +3,10 @@ mod brew;
 use brew::{
     adopt_cask_package, check_brew_doctor, check_brewfile, export_brewfile_to_path,
     get_brewfile_content, get_cleanup_dry_run, get_installed_json, get_outdated_json,
-    get_services_list, get_system_info, install_brewfile, manage_service_action,
-    package_operation, run_autoremove_execute, run_cleanup_execute, save_brewfile,
-    scan_unmanaged_apps, search_brew, BrewfileCheckResult, CleanupPreview, CommandOutput,
-    SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    get_services_list, get_system_info, install_brewfile, manage_service_action, package_operation,
+    pin_formula, run_autoremove_execute, run_cleanup_execute, save_brewfile, scan_unmanaged_apps,
+    search_brew, unpin_formula, BrewfileCheckResult, CleanupPreview, CommandOutput, SearchResult,
+    ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -26,8 +26,8 @@ async fn get_installed() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn get_outdated() -> Result<serde_json::Value, String> {
-    get_outdated_json().await
+async fn get_outdated(greedy: Option<bool>) -> Result<serde_json::Value, String> {
+    get_outdated_json(greedy.unwrap_or(false)).await
 }
 
 #[tauri::command]
@@ -56,18 +56,32 @@ async fn run_autoremove() -> Result<CommandOutput, String> {
 }
 
 #[tauri::command]
-async fn upgrade_package(name: String, is_cask: bool) -> Result<CommandOutput, String> {
-    package_operation("upgrade", &name, is_cask).await
+async fn upgrade_package(
+    name: String,
+    is_cask: bool,
+    greedy: Option<bool>,
+) -> Result<CommandOutput, String> {
+    package_operation("upgrade", &name, is_cask, greedy.unwrap_or(false)).await
 }
 
 #[tauri::command]
 async fn uninstall_package(name: String, is_cask: bool) -> Result<CommandOutput, String> {
-    package_operation("uninstall", &name, is_cask).await
+    package_operation("uninstall", &name, is_cask, false).await
 }
 
 #[tauri::command]
 async fn install_package(name: String, is_cask: bool) -> Result<CommandOutput, String> {
-    package_operation("install", &name, is_cask).await
+    package_operation("install", &name, is_cask, false).await
+}
+
+#[tauri::command]
+async fn pin_package(name: String) -> Result<CommandOutput, String> {
+    pin_formula(&name).await
+}
+
+#[tauri::command]
+async fn unpin_package(name: String) -> Result<CommandOutput, String> {
+    unpin_formula(&name).await
 }
 
 #[tauri::command]
@@ -162,7 +176,7 @@ pub fn run() {
                             "check" => {
                                 let app_handle = app.clone();
                                 tauri::async_runtime::spawn(async move {
-                                    if let Ok(outdated_val) = brew::get_outdated_json().await {
+                                    if let Ok(outdated_val) = brew::get_outdated_json(false).await {
                                         let f_count = outdated_val
                                             .get("formulae")
                                             .and_then(|v| v.as_array())
@@ -224,7 +238,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(12)).await;
                     loop {
-                        if let Ok(outdated_val) = brew::get_outdated_json().await {
+                        if let Ok(outdated_val) = brew::get_outdated_json(false).await {
                             let f_count = outdated_val
                                 .get("formulae")
                                 .and_then(|v| v.as_array())
@@ -267,6 +281,8 @@ pub fn run() {
             upgrade_package,
             uninstall_package,
             install_package,
+            pin_package,
+            unpin_package,
             search_packages,
             check_doctor,
             scan_unmanaged,

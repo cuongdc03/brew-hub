@@ -23,8 +23,8 @@ export async function fetchInstalledPackages(): Promise<InstalledData> {
   };
 }
 
-export async function fetchOutdatedPackages(): Promise<OutdatedData> {
-  const data = await invoke<any>("get_outdated");
+export async function fetchOutdatedPackages(greedy?: boolean): Promise<OutdatedData> {
+  const data = await invoke<any>("get_outdated", { greedy });
   return {
     formulae: data.formulae || [],
     casks: data.casks || [],
@@ -54,8 +54,12 @@ export async function executeAutoremove(): Promise<CommandOutput> {
   return await invoke<CommandOutput>("run_autoremove");
 }
 
-export async function upgradePackage(name: string, isCask: boolean): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("upgrade_package", { name, isCask });
+export async function upgradePackage(
+  name: string,
+  isCask: boolean,
+  greedy?: boolean
+): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("upgrade_package", { name, isCask, greedy });
 }
 
 export async function uninstallPackage(name: string, isCask: boolean): Promise<CommandOutput> {
@@ -64,6 +68,14 @@ export async function uninstallPackage(name: string, isCask: boolean): Promise<C
 
 export async function installPackage(name: string, isCask: boolean): Promise<CommandOutput> {
   return await invoke<CommandOutput>("install_package", { name, isCask });
+}
+
+export async function pinPackage(name: string): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("pin_package", { name });
+}
+
+export async function unpinPackage(name: string): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("unpin_package", { name });
 }
 
 export async function searchPackages(query: string): Promise<SearchResult> {

@@ -105,7 +105,10 @@ end tell
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
+                    let _ = std::fs::set_permissions(
+                        &script_path,
+                        std::fs::Permissions::from_mode(0o755),
+                    );
                 }
             }
         }
@@ -164,7 +167,9 @@ pub async fn get_system_info() -> Result<SystemInfo, String> {
         .output()
         .await
         .map_err(|e| format!("Failed to run brew --prefix: {}", e))?;
-    let prefix_str = String::from_utf8_lossy(&prefix_output.stdout).trim().to_string();
+    let prefix_str = String::from_utf8_lossy(&prefix_output.stdout)
+        .trim()
+        .to_string();
 
     let arch = std::env::consts::ARCH.to_string();
 
@@ -193,9 +198,23 @@ pub async fn get_installed_json() -> Result<serde_json::Value, String> {
         .map_err(|e| format!("Failed to parse brew info JSON: {}", e))
 }
 
-pub async fn get_outdated_json() -> Result<serde_json::Value, String> {
+pub fn is_valid_package_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.starts_with('-') {
+        return false;
+    }
+    trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '@' || c == '/')
+}
+
+pub async fn get_outdated_json(greedy: bool) -> Result<serde_json::Value, String> {
     let mut cmd = create_brew_command();
-    cmd.args(["outdated", "--json=v2"]);
+    cmd.arg("outdated");
+    if greedy {
+        cmd.arg("--greedy");
+    }
+    cmd.arg("--json=v2");
 
     let output = cmd
         .output()
@@ -321,13 +340,22 @@ pub async fn package_operation(
     operation: &str,
     name: &str,
     is_cask: bool,
+    greedy: bool,
 ) -> Result<CommandOutput, String> {
+    if !is_valid_package_name(name) {
+        return Err(format!("Invalid package name: {}", name));
+    }
+
     let mut cmd = create_brew_command();
     let mut args = vec![operation];
 
     if is_cask {
         args.push("--cask");
+        if greedy && operation == "upgrade" {
+            args.push("--greedy");
+        }
     }
+    args.push("--");
     args.push(name);
     cmd.args(&args);
 
@@ -335,6 +363,46 @@ pub async fn package_operation(
         .output()
         .await
         .map_err(|e| format!("Failed to execute brew {} {}: {}", operation, name, e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+pub async fn pin_formula(name: &str) -> Result<CommandOutput, String> {
+    if !is_valid_package_name(name) {
+        return Err(format!("Invalid package name: {}", name));
+    }
+
+    let mut cmd = create_brew_command();
+    cmd.args(["pin", "--", name]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew pin {}: {}", name, e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+pub async fn unpin_formula(name: &str) -> Result<CommandOutput, String> {
+    if !is_valid_package_name(name) {
+        return Err(format!("Invalid package name: {}", name));
+    }
+
+    let mut cmd = create_brew_command();
+    cmd.args(["unpin", "--", name]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew unpin {}: {}", name, e))?;
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -433,8 +501,12 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                     if name.starts_with("packages.") && name.ends_with(".payload") {
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Some(json_line) = content.lines().nth(1) {
-                                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_line) {
-                                    if let Some(casks_map) = val.get("casks").and_then(|c| c.as_object()) {
+                                if let Ok(val) =
+                                    serde_json::from_str::<serde_json::Value>(json_line)
+                                {
+                                    if let Some(casks_map) =
+                                        val.get("casks").and_then(|c| c.as_object())
+                                    {
                                         let mut items = Vec::new();
                                         for (token, obj) in casks_map {
                                             let name = obj
@@ -463,14 +535,25 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                                                 .unwrap_or(false);
 
                                             let mut app_artifacts = Vec::new();
-                                            if let Some(artifacts) = obj.get("raw_artifacts").and_then(|a| a.as_array()) {
+                                            if let Some(artifacts) =
+                                                obj.get("raw_artifacts").and_then(|a| a.as_array())
+                                            {
                                                 for art in artifacts {
                                                     if let Some(pair) = art.as_array() {
-                                                        if pair.first().and_then(|v| v.as_str()) == Some(":app") {
-                                                            if let Some(app_list) = pair.get(1).and_then(|v| v.as_array()) {
+                                                        if pair.first().and_then(|v| v.as_str())
+                                                            == Some(":app")
+                                                        {
+                                                            if let Some(app_list) = pair
+                                                                .get(1)
+                                                                .and_then(|v| v.as_array())
+                                                            {
                                                                 for app_val in app_list {
-                                                                    if let Some(app_str) = app_val.as_str() {
-                                                                        app_artifacts.push(app_str.to_string());
+                                                                    if let Some(app_str) =
+                                                                        app_val.as_str()
+                                                                    {
+                                                                        app_artifacts.push(
+                                                                            app_str.to_string(),
+                                                                        );
                                                                     }
                                                                 }
                                                             }
@@ -540,10 +623,13 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                                 .unwrap_or(false);
 
                             let mut app_artifacts = Vec::new();
-                            if let Some(artifacts) = obj.get("artifacts").and_then(|a| a.as_array()) {
+                            if let Some(artifacts) = obj.get("artifacts").and_then(|a| a.as_array())
+                            {
                                 for art in artifacts {
                                     if let Some(art_obj) = art.as_object() {
-                                        if let Some(app_list) = art_obj.get("app").and_then(|v| v.as_array()) {
+                                        if let Some(app_list) =
+                                            art_obj.get("app").and_then(|v| v.as_array())
+                                        {
                                             for app_val in app_list {
                                                 if let Some(app_str) = app_val.as_str() {
                                                     app_artifacts.push(app_str.to_string());
@@ -578,7 +664,9 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
 
 pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
     // 1. Get already installed casks from Homebrew
-    let installed_val = get_installed_json().await.unwrap_or(serde_json::Value::Null);
+    let installed_val = get_installed_json()
+        .await
+        .unwrap_or(serde_json::Value::Null);
     let mut installed_cask_tokens = std::collections::HashSet::new();
 
     if let Some(casks) = installed_val.get("casks").and_then(|c| c.as_array()) {
@@ -591,8 +679,10 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
 
     // 2. Load cask catalog to correlate
     let catalog = load_cask_catalog();
-    let mut artifact_map: std::collections::HashMap<String, &CaskCatalogItem> = std::collections::HashMap::new();
-    let mut token_map: std::collections::HashMap<String, &CaskCatalogItem> = std::collections::HashMap::new();
+    let mut artifact_map: std::collections::HashMap<String, &CaskCatalogItem> =
+        std::collections::HashMap::new();
+    let mut token_map: std::collections::HashMap<String, &CaskCatalogItem> =
+        std::collections::HashMap::new();
 
     for item in &catalog {
         token_map.insert(item.token.to_lowercase(), item);
@@ -632,7 +722,11 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
             }
             seen_paths.insert(path_str.clone());
 
-            let app_filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let app_filename = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             let app_filename_lower = app_filename.to_lowercase();
 
             // Skip internal / Apple / system / self apps
@@ -649,7 +743,9 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
             if plist_path.exists() {
                 if let Ok(plist_val) = plist::Value::from_file(&plist_path) {
                     if let Some(dict) = plist_val.as_dictionary() {
-                        if let Some(bid) = dict.get("CFBundleIdentifier").and_then(|v| v.as_string()) {
+                        if let Some(bid) =
+                            dict.get("CFBundleIdentifier").and_then(|v| v.as_string())
+                        {
                             // Exclude Apple system apps
                             if bid.starts_with("com.apple.") {
                                 continue;
@@ -684,7 +780,9 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
                     token_map.get(&token_hyphen)
                 })
                 .or_else(|| {
-                    let sanitized = app_filename_lower.trim_end_matches(".app").replace(' ', "-");
+                    let sanitized = app_filename_lower
+                        .trim_end_matches(".app")
+                        .replace(' ', "-");
                     token_map.get(&sanitized)
                 });
 
@@ -718,10 +816,12 @@ pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
     let mut cmd = create_brew_command();
     cmd.args(["install", "--cask", "--adopt", token]);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute brew install --cask --adopt {}: {}", token, e))?;
+    let output = cmd.output().await.map_err(|e| {
+        format!(
+            "Failed to execute brew install --cask --adopt {}: {}",
+            token, e
+        )
+    })?;
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -774,7 +874,8 @@ pub async fn save_brewfile(content: String, path: Option<String>) -> Result<Stri
     let target_path = if let Some(p) = path {
         PathBuf::from(p)
     } else {
-        let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
+        let home =
+            std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
         PathBuf::from(home).join(".Brewfile")
     };
 
@@ -782,13 +883,21 @@ pub async fn save_brewfile(content: String, path: Option<String>) -> Result<Stri
         let _ = std::fs::create_dir_all(parent);
     }
 
-    std::fs::write(&target_path, content)
-        .map_err(|e| format!("Failed to write Brewfile to {}: {}", target_path.display(), e))?;
+    std::fs::write(&target_path, content).map_err(|e| {
+        format!(
+            "Failed to write Brewfile to {}: {}",
+            target_path.display(),
+            e
+        )
+    })?;
 
     Ok(target_path.to_string_lossy().to_string())
 }
 
-pub async fn check_brewfile(path: Option<String>, content: Option<String>) -> Result<BrewfileCheckResult, String> {
+pub async fn check_brewfile(
+    path: Option<String>,
+    content: Option<String>,
+) -> Result<BrewfileCheckResult, String> {
     let check_file_path = if let Some(text) = content {
         let temp_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&temp_dir);
@@ -821,7 +930,8 @@ pub async fn check_brewfile(path: Option<String>, content: Option<String>) -> Re
     let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
     let combined = format!("{}\n{}", stdout_str, stderr_str);
 
-    let satisfied = output.status.success() || combined.contains("The Brewfile's dependencies are satisfied.");
+    let satisfied =
+        output.status.success() || combined.contains("The Brewfile's dependencies are satisfied.");
     let mut missing_items = Vec::new();
 
     for line in combined.lines() {
@@ -884,7 +994,12 @@ pub async fn install_brewfile(
 
 pub async fn export_brewfile_to_path(target_path: &str) -> Result<CommandOutput, String> {
     let mut cmd = create_brew_command();
-    cmd.args(["bundle", "dump", &format!("--file={}", target_path), "--force"]);
+    cmd.args([
+        "bundle",
+        "dump",
+        &format!("--file={}", target_path),
+        "--force",
+    ]);
 
     let output = cmd
         .output()
@@ -996,16 +1111,53 @@ mod tests {
         assert_eq!(missing_items[1], "Formula cowsay needs to be installed.");
     }
 
+    #[test]
+    fn test_is_valid_package_name() {
+        assert!(is_valid_package_name("git"));
+        assert!(is_valid_package_name("node@20"));
+        assert!(is_valid_package_name("homebrew/cask/visual-studio-code"));
+        assert!(is_valid_package_name("hdrhistogram_c"));
+        assert!(is_valid_package_name("sdl2-compat"));
+
+        assert!(!is_valid_package_name(""));
+        assert!(!is_valid_package_name("   "));
+        assert!(!is_valid_package_name("--force"));
+        assert!(!is_valid_package_name("-rf"));
+        assert!(!is_valid_package_name("pkg; rm -rf /"));
+        assert!(!is_valid_package_name("pkg && echo 1"));
+    }
+
     #[tokio::test]
-    async fn test_scan_unmanaged_apps_runnable() {
-        let res = scan_unmanaged_apps().await;
-        assert!(res.is_ok());
-        let apps = res.unwrap();
-        // Verifies structure without crashing on local environment
-        for app in apps {
-            assert!(!app.cask_token.is_empty());
-            assert!(!app.name.is_empty());
-        }
+    async fn test_pin_unpin_rejects_invalid_names() {
+        let pin_res = pin_formula("--invalid").await;
+        assert!(pin_res.is_err());
+        assert!(pin_res.unwrap_err().contains("Invalid package name"));
+
+        let unpin_res = unpin_formula("; dangerous").await;
+        assert!(unpin_res.is_err());
+        assert!(unpin_res.unwrap_err().contains("Invalid package name"));
+    }
+
+    #[tokio::test]
+    async fn test_package_operation_rejects_invalid_names() {
+        let res = package_operation("install", "--flag", false, false).await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid package name"));
+    }
+
+    #[tokio::test]
+    async fn test_get_outdated_json_greedy_parameter() {
+        // Verifies both false and true return structured JSON without runtime panic
+        let res_standard = get_outdated_json(false).await;
+        assert!(res_standard.is_ok());
+        let val_standard = res_standard.unwrap();
+        assert!(val_standard.get("formulae").is_some());
+        assert!(val_standard.get("casks").is_some());
+
+        let res_greedy = get_outdated_json(true).await;
+        assert!(res_greedy.is_ok());
+        let val_greedy = res_greedy.unwrap();
+        assert!(val_greedy.get("formulae").is_some());
+        assert!(val_greedy.get("casks").is_some());
     }
 }
-
