@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Copy, Check, Terminal as TerminalIcon } from "lucide-react";
+import { X, Copy, Check, Terminal as TerminalIcon, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface TerminalModalProps {
   isOpen: boolean;
@@ -7,6 +7,7 @@ interface TerminalModalProps {
   title: string;
   output: string;
   isLoading?: boolean;
+  status?: "running" | "success" | "error";
 }
 
 export const TerminalModal: React.FC<TerminalModalProps> = ({
@@ -15,6 +16,7 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({
   title,
   output,
   isLoading,
+  status,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -36,11 +38,19 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({
             <span className="text-xs font-mono font-medium text-zinc-200 truncate max-w-md">
               {title}
             </span>
-            {isLoading && (
+            {isLoading || status === "running" ? (
               <span className="text-[10px] text-amber-400 bg-amber-500/15 border border-amber-500/25 px-2 py-0.5 rounded-full font-mono animate-pulse">
                 Running...
               </span>
-            )}
+            ) : status === "success" ? (
+              <span className="text-[10px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/25 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+                <CheckCircle2 className="w-2.5 h-2.5" /> Succeeded
+              </span>
+            ) : status === "error" ? (
+              <span className="text-[10px] text-rose-400 bg-rose-500/15 border border-rose-500/25 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+                <AlertCircle className="w-2.5 h-2.5" /> Failed
+              </span>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-2">
