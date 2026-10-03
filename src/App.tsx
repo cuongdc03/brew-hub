@@ -13,6 +13,8 @@ import { PackageInspector, InspectedItem } from "./components/PackageInspector";
 import { ArrowUpCircle, Zap } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
+  BrewfileCheckResult,
+  BrewfileData,
   CaskItem,
   CleanupPreview,
   FormulaItem,
@@ -26,6 +28,7 @@ import {
   checkDoctor,
   executeAutoremove,
   executeCleanup,
+  fetchBrewfile,
   fetchCleanupPreview,
   fetchInstalledPackages,
   fetchOutdatedPackages,
@@ -49,6 +52,28 @@ export function App() {
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
+
+  const [brewfileData, setBrewfileData] = useState<BrewfileData | null>(null);
+  const [brewfileSavedContent, setBrewfileSavedContent] = useState<string>("");
+  const [brewfileCheckResult, setBrewfileCheckResult] = useState<BrewfileCheckResult | null>(null);
+  const [isBrewfileLoading, setIsBrewfileLoading] = useState<boolean>(false);
+
+  const isBrewfileDirty =
+    brewfileData !== null && brewfileData.content !== brewfileSavedContent;
+
+  const loadBrewfileData = async (path?: string) => {
+    try {
+      setIsBrewfileLoading(true);
+      const data = await fetchBrewfile(path);
+      setBrewfileData(data);
+      setBrewfileSavedContent(data.content);
+      setBrewfileCheckResult(null);
+    } catch (err) {
+      console.error("Failed to load Brewfile:", err);
+    } finally {
+      setIsBrewfileLoading(false);
+    }
+  };
 
   const [selectedItem, setSelectedItem] = useState<InspectedItem>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
@@ -113,6 +138,12 @@ export function App() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "brewfile" && !brewfileData && !isBrewfileLoading) {
+      loadBrewfileData();
+    }
+  }, [activeTab]);
 
   // Listen for macOS menu-bar tray actions
   useEffect(() => {
@@ -533,6 +564,7 @@ export function App() {
           servicesRunning: runningServicesCount,
           outdated: totalOutdatedCount,
           cleanupSpace: cleanupPreview?.total_space || "0 B",
+          isBrewfileDirty,
         }}
         systemInfo={systemInfo}
         onOpenDoctor={handleCheckDoctor}
@@ -632,6 +664,14 @@ export function App() {
               <BrewfileView
                 onRunCommandInTerminal={handleRunCommandInTerminal}
                 isActionRunning={isActionRunning}
+                brewfileData={brewfileData}
+                setBrewfileData={setBrewfileData}
+                savedContent={brewfileSavedContent}
+                setSavedContent={setBrewfileSavedContent}
+                checkResult={brewfileCheckResult}
+                setCheckResult={setBrewfileCheckResult}
+                onReload={loadBrewfileData}
+                isLoading={isBrewfileLoading}
               />
             )}
 

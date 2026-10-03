@@ -59,6 +59,13 @@ pub struct UnmanagedApp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrewfileData {
+    pub path: String,
+    pub content: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrewfileCheckResult {
     pub satisfied: bool,
     pub missing_count: usize,
@@ -105,7 +112,10 @@ end tell
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
+                    let _ = std::fs::set_permissions(
+                        &script_path,
+                        std::fs::Permissions::from_mode(0o755),
+                    );
                 }
             }
         }
@@ -164,7 +174,9 @@ pub async fn get_system_info() -> Result<SystemInfo, String> {
         .output()
         .await
         .map_err(|e| format!("Failed to run brew --prefix: {}", e))?;
-    let prefix_str = String::from_utf8_lossy(&prefix_output.stdout).trim().to_string();
+    let prefix_str = String::from_utf8_lossy(&prefix_output.stdout)
+        .trim()
+        .to_string();
 
     let arch = std::env::consts::ARCH.to_string();
 
@@ -433,8 +445,12 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                     if name.starts_with("packages.") && name.ends_with(".payload") {
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Some(json_line) = content.lines().nth(1) {
-                                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_line) {
-                                    if let Some(casks_map) = val.get("casks").and_then(|c| c.as_object()) {
+                                if let Ok(val) =
+                                    serde_json::from_str::<serde_json::Value>(json_line)
+                                {
+                                    if let Some(casks_map) =
+                                        val.get("casks").and_then(|c| c.as_object())
+                                    {
                                         let mut items = Vec::new();
                                         for (token, obj) in casks_map {
                                             let name = obj
@@ -463,14 +479,25 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                                                 .unwrap_or(false);
 
                                             let mut app_artifacts = Vec::new();
-                                            if let Some(artifacts) = obj.get("raw_artifacts").and_then(|a| a.as_array()) {
+                                            if let Some(artifacts) =
+                                                obj.get("raw_artifacts").and_then(|a| a.as_array())
+                                            {
                                                 for art in artifacts {
                                                     if let Some(pair) = art.as_array() {
-                                                        if pair.first().and_then(|v| v.as_str()) == Some(":app") {
-                                                            if let Some(app_list) = pair.get(1).and_then(|v| v.as_array()) {
+                                                        if pair.first().and_then(|v| v.as_str())
+                                                            == Some(":app")
+                                                        {
+                                                            if let Some(app_list) = pair
+                                                                .get(1)
+                                                                .and_then(|v| v.as_array())
+                                                            {
                                                                 for app_val in app_list {
-                                                                    if let Some(app_str) = app_val.as_str() {
-                                                                        app_artifacts.push(app_str.to_string());
+                                                                    if let Some(app_str) =
+                                                                        app_val.as_str()
+                                                                    {
+                                                                        app_artifacts.push(
+                                                                            app_str.to_string(),
+                                                                        );
                                                                     }
                                                                 }
                                                             }
@@ -540,10 +567,13 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
                                 .unwrap_or(false);
 
                             let mut app_artifacts = Vec::new();
-                            if let Some(artifacts) = obj.get("artifacts").and_then(|a| a.as_array()) {
+                            if let Some(artifacts) = obj.get("artifacts").and_then(|a| a.as_array())
+                            {
                                 for art in artifacts {
                                     if let Some(art_obj) = art.as_object() {
-                                        if let Some(app_list) = art_obj.get("app").and_then(|v| v.as_array()) {
+                                        if let Some(app_list) =
+                                            art_obj.get("app").and_then(|v| v.as_array())
+                                        {
                                             for app_val in app_list {
                                                 if let Some(app_str) = app_val.as_str() {
                                                     app_artifacts.push(app_str.to_string());
@@ -578,7 +608,9 @@ fn load_cask_catalog() -> Vec<CaskCatalogItem> {
 
 pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
     // 1. Get already installed casks from Homebrew
-    let installed_val = get_installed_json().await.unwrap_or(serde_json::Value::Null);
+    let installed_val = get_installed_json()
+        .await
+        .unwrap_or(serde_json::Value::Null);
     let mut installed_cask_tokens = std::collections::HashSet::new();
 
     if let Some(casks) = installed_val.get("casks").and_then(|c| c.as_array()) {
@@ -591,8 +623,10 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
 
     // 2. Load cask catalog to correlate
     let catalog = load_cask_catalog();
-    let mut artifact_map: std::collections::HashMap<String, &CaskCatalogItem> = std::collections::HashMap::new();
-    let mut token_map: std::collections::HashMap<String, &CaskCatalogItem> = std::collections::HashMap::new();
+    let mut artifact_map: std::collections::HashMap<String, &CaskCatalogItem> =
+        std::collections::HashMap::new();
+    let mut token_map: std::collections::HashMap<String, &CaskCatalogItem> =
+        std::collections::HashMap::new();
 
     for item in &catalog {
         token_map.insert(item.token.to_lowercase(), item);
@@ -632,7 +666,11 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
             }
             seen_paths.insert(path_str.clone());
 
-            let app_filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let app_filename = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             let app_filename_lower = app_filename.to_lowercase();
 
             // Skip internal / Apple / system / self apps
@@ -649,7 +687,9 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
             if plist_path.exists() {
                 if let Ok(plist_val) = plist::Value::from_file(&plist_path) {
                     if let Some(dict) = plist_val.as_dictionary() {
-                        if let Some(bid) = dict.get("CFBundleIdentifier").and_then(|v| v.as_string()) {
+                        if let Some(bid) =
+                            dict.get("CFBundleIdentifier").and_then(|v| v.as_string())
+                        {
                             // Exclude Apple system apps
                             if bid.starts_with("com.apple.") {
                                 continue;
@@ -684,7 +724,9 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
                     token_map.get(&token_hyphen)
                 })
                 .or_else(|| {
-                    let sanitized = app_filename_lower.trim_end_matches(".app").replace(' ', "-");
+                    let sanitized = app_filename_lower
+                        .trim_end_matches(".app")
+                        .replace(' ', "-");
                     token_map.get(&sanitized)
                 });
 
@@ -718,10 +760,12 @@ pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
     let mut cmd = create_brew_command();
     cmd.args(["install", "--cask", "--adopt", token]);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute brew install --cask --adopt {}: {}", token, e))?;
+    let output = cmd.output().await.map_err(|e| {
+        format!(
+            "Failed to execute brew install --cask --adopt {}: {}",
+            token, e
+        )
+    })?;
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -730,12 +774,17 @@ pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
     })
 }
 
-pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String> {
-    if let Some(custom_path) = path {
+pub async fn get_brewfile_content(path: Option<String>) -> Result<BrewfileData, String> {
+    if let Some(custom_path) = path.filter(|s| !s.trim().is_empty()) {
         let p = PathBuf::from(&custom_path);
         if p.exists() {
-            return std::fs::read_to_string(&p)
-                .map_err(|e| format!("Failed to read Brewfile at {}: {}", custom_path, e));
+            let content = std::fs::read_to_string(&p)
+                .map_err(|e| format!("Failed to read Brewfile at {}: {}", custom_path, e))?;
+            return Ok(BrewfileData {
+                path: custom_path,
+                content,
+                source: "file".to_string(),
+            });
         } else {
             return Err(format!("Brewfile at {} does not exist", custom_path));
         }
@@ -749,7 +798,11 @@ pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String
         for sp in &standard_paths {
             if sp.exists() {
                 if let Ok(content) = std::fs::read_to_string(sp) {
-                    return Ok(content);
+                    return Ok(BrewfileData {
+                        path: sp.to_string_lossy().to_string(),
+                        content,
+                        source: "file".to_string(),
+                    });
                 }
             }
         }
@@ -767,14 +820,28 @@ pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let default_save_path = std::env::var("HOME")
+        .map(|h| {
+            PathBuf::from(h)
+                .join(".Brewfile")
+                .to_string_lossy()
+                .to_string()
+        })
+        .unwrap_or_else(|_| "~/.Brewfile".to_string());
+
+    Ok(BrewfileData {
+        path: default_save_path,
+        content: String::from_utf8_lossy(&output.stdout).to_string(),
+        source: "dump".to_string(),
+    })
 }
 
 pub async fn save_brewfile(content: String, path: Option<String>) -> Result<String, String> {
-    let target_path = if let Some(p) = path {
+    let target_path = if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(p)
     } else {
-        let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
+        let home =
+            std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
         PathBuf::from(home).join(".Brewfile")
     };
 
@@ -782,25 +849,33 @@ pub async fn save_brewfile(content: String, path: Option<String>) -> Result<Stri
         let _ = std::fs::create_dir_all(parent);
     }
 
-    std::fs::write(&target_path, content)
-        .map_err(|e| format!("Failed to write Brewfile to {}: {}", target_path.display(), e))?;
+    std::fs::write(&target_path, content).map_err(|e| {
+        format!(
+            "Failed to write Brewfile to {}: {}",
+            target_path.display(),
+            e
+        )
+    })?;
 
     Ok(target_path.to_string_lossy().to_string())
 }
 
-pub async fn check_brewfile(path: Option<String>, content: Option<String>) -> Result<BrewfileCheckResult, String> {
-    let check_file_path = if let Some(text) = content {
+pub async fn check_brewfile(
+    path: Option<String>,
+    content: Option<String>,
+) -> Result<BrewfileCheckResult, String> {
+    let (check_file_path, is_temp) = if let Some(text) = content {
         let temp_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&temp_dir);
-        let temp_file = temp_dir.join("Brewfile.check");
+        let temp_file = temp_dir.join(format!("Brewfile.check.{}", std::process::id()));
         std::fs::write(&temp_file, text)
             .map_err(|e| format!("Failed to write temporary check Brewfile: {}", e))?;
-        temp_file
-    } else if let Some(p) = path {
-        PathBuf::from(p)
+        (temp_file, true)
+    } else if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
+        (PathBuf::from(p), false)
     } else {
         let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        PathBuf::from(home).join(".Brewfile")
+        (PathBuf::from(home).join(".Brewfile"), false)
     };
 
     let mut cmd = create_brew_command();
@@ -812,16 +887,20 @@ pub async fn check_brewfile(path: Option<String>, content: Option<String>) -> Re
         "--no-upgrade",
     ]);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run brew bundle check: {}", e))?;
+    let output_res = cmd.output().await;
+
+    if is_temp {
+        let _ = std::fs::remove_file(&check_file_path);
+    }
+
+    let output = output_res.map_err(|e| format!("Failed to run brew bundle check: {}", e))?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
     let combined = format!("{}\n{}", stdout_str, stderr_str);
 
-    let satisfied = output.status.success() || combined.contains("The Brewfile's dependencies are satisfied.");
+    let satisfied =
+        output.status.success() || combined.contains("The Brewfile's dependencies are satisfied.");
     let mut missing_items = Vec::new();
 
     for line in combined.lines() {
@@ -844,18 +923,18 @@ pub async fn install_brewfile(
     content: Option<String>,
     no_upgrade: bool,
 ) -> Result<CommandOutput, String> {
-    let install_file_path = if let Some(text) = content {
+    let (install_file_path, is_temp) = if let Some(text) = content {
         let temp_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&temp_dir);
-        let temp_file = temp_dir.join("Brewfile.install");
+        let temp_file = temp_dir.join(format!("Brewfile.install.{}", std::process::id()));
         std::fs::write(&temp_file, text)
             .map_err(|e| format!("Failed to write temporary install Brewfile: {}", e))?;
-        temp_file
-    } else if let Some(p) = path {
-        PathBuf::from(p)
+        (temp_file, true)
+    } else if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
+        (PathBuf::from(p), false)
     } else {
         let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        PathBuf::from(home).join(".Brewfile")
+        (PathBuf::from(home).join(".Brewfile"), false)
     };
 
     let mut cmd = create_brew_command();
@@ -870,10 +949,13 @@ pub async fn install_brewfile(
     }
     cmd.args(&args);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute brew bundle install: {}", e))?;
+    let output_res = cmd.output().await;
+
+    if is_temp {
+        let _ = std::fs::remove_file(&install_file_path);
+    }
+
+    let output = output_res.map_err(|e| format!("Failed to execute brew bundle install: {}", e))?;
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -884,7 +966,12 @@ pub async fn install_brewfile(
 
 pub async fn export_brewfile_to_path(target_path: &str) -> Result<CommandOutput, String> {
     let mut cmd = create_brew_command();
-    cmd.args(["bundle", "dump", &format!("--file={}", target_path), "--force"]);
+    cmd.args([
+        "bundle",
+        "dump",
+        &format!("--file={}", target_path),
+        "--force",
+    ]);
 
     let output = cmd
         .output()
@@ -1007,5 +1094,39 @@ mod tests {
             assert!(!app.name.is_empty());
         }
     }
-}
 
+    #[tokio::test]
+    async fn test_brewfile_save_and_read_custom_path() {
+        let temp_dir = std::env::temp_dir().join("brew-hub-test");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join(format!("TestBrewfile.{}", std::process::id()));
+        let test_path = test_file.to_string_lossy().to_string();
+
+        let sample_content = "tap \"homebrew/core\"\nbrew \"curl\"\n";
+        let save_res = save_brewfile(sample_content.to_string(), Some(test_path.clone())).await;
+        assert!(save_res.is_ok());
+
+        let read_res = get_brewfile_content(Some(test_path.clone())).await;
+        assert!(read_res.is_ok());
+        let brewfile_data = read_res.unwrap();
+        assert_eq!(brewfile_data.content, sample_content);
+        assert_eq!(brewfile_data.path, test_path);
+        assert_eq!(brewfile_data.source, "file");
+
+        let _ = std::fs::remove_file(&test_file);
+        let _ = std::fs::remove_dir(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_brewfile_check_temp_cleanup() {
+        let temp_check_file = std::env::temp_dir()
+            .join("brew-hub")
+            .join(format!("Brewfile.check.{}", std::process::id()));
+
+        // Run check with inline content
+        let _ = check_brewfile(None, Some("tap \"homebrew/core\"\n".to_string())).await;
+
+        // Verify the temporary file was cleaned up and no longer exists
+        assert!(!temp_check_file.exists());
+    }
+}
