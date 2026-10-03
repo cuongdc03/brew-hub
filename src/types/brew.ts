@@ -84,3 +84,23 @@ export interface CommandOutput {
   stdout: string;
   stderr: string;
 }
+
+export interface UnmanagedApp {
+  name: string;
+  path: string;
+  bundle_id: string | null;
+  installed_version: string | null;
+  cask_token: string;
+  cask_name: string;
+  cask_version: string;
+  cask_desc: string | null;
+  cask_homepage: string | null;
+  auto_updates: boolean;
+}
+
+export interface BrewfileCheckResult {
+  satisfied: boolean;
+  missing_count: number;
+  missing_items: string[];
+  raw_output: string;
+}

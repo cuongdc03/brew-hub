@@ -44,6 +44,28 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnmanagedApp {
+    pub name: String,
+    pub path: String,
+    pub bundle_id: Option<String>,
+    pub installed_version: Option<String>,
+    pub cask_token: String,
+    pub cask_name: String,
+    pub cask_version: String,
+    pub cask_desc: Option<String>,
+    pub cask_homepage: Option<String>,
+    pub auto_updates: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrewfileCheckResult {
+    pub satisfied: bool,
+    pub missing_count: usize,
+    pub missing_items: Vec<String>,
+    pub raw_output: String,
+}
+
 pub fn get_brew_bin() -> PathBuf {
     let candidates = [
         "/opt/homebrew/bin/brew",
@@ -388,6 +410,494 @@ pub fn parse_search_output(stdout: &str) -> Vec<String> {
     items
 }
 
+#[derive(Debug, Clone)]
+struct CaskCatalogItem {
+    token: String,
+    name: String,
+    version: String,
+    desc: Option<String>,
+    homepage: Option<String>,
+    app_artifacts: Vec<String>,
+    auto_updates: bool,
+}
+
+fn load_cask_catalog() -> Vec<CaskCatalogItem> {
+    // 1. Try reading Homebrew's internal cached payload if present
+    if let Ok(home) = std::env::var("HOME") {
+        let api_internal = PathBuf::from(home).join("Library/Caches/Homebrew/api/internal");
+        if api_internal.exists() {
+            if let Ok(entries) = std::fs::read_dir(&api_internal) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    if name.starts_with("packages.") && name.ends_with(".payload") {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Some(json_line) = content.lines().nth(1) {
+                                if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_line) {
+                                    if let Some(casks_map) = val.get("casks").and_then(|c| c.as_object()) {
+                                        let mut items = Vec::new();
+                                        for (token, obj) in casks_map {
+                                            let name = obj
+                                                .get("names")
+                                                .and_then(|n| n.as_array())
+                                                .and_then(|arr| arr.first())
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or(token)
+                                                .to_string();
+                                            let version = obj
+                                                .get("version")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("latest")
+                                                .to_string();
+                                            let desc = obj
+                                                .get("desc")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.to_string());
+                                            let homepage = obj
+                                                .get("homepage")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.to_string());
+                                            let auto_updates = obj
+                                                .get("auto_updates")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(false);
+
+                                            let mut app_artifacts = Vec::new();
+                                            if let Some(artifacts) = obj.get("raw_artifacts").and_then(|a| a.as_array()) {
+                                                for art in artifacts {
+                                                    if let Some(pair) = art.as_array() {
+                                                        if pair.first().and_then(|v| v.as_str()) == Some(":app") {
+                                                            if let Some(app_list) = pair.get(1).and_then(|v| v.as_array()) {
+                                                                for app_val in app_list {
+                                                                    if let Some(app_str) = app_val.as_str() {
+                                                                        app_artifacts.push(app_str.to_string());
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            items.push(CaskCatalogItem {
+                                                token: token.clone(),
+                                                name,
+                                                version,
+                                                desc,
+                                                homepage,
+                                                app_artifacts,
+                                                auto_updates,
+                                            });
+                                        }
+                                        if !items.is_empty() {
+                                            return items;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: check /tmp/cask.json or app cache
+    let fallback_paths = [
+        PathBuf::from("/tmp/cask.json"),
+        std::env::temp_dir().join("brew-hub").join("cask.json"),
+    ];
+    for p in &fallback_paths {
+        if p.exists() {
+            if let Ok(file) = std::fs::File::open(p) {
+                if let Ok(casks_arr) = serde_json::from_reader::<_, Vec<serde_json::Value>>(file) {
+                    let mut items = Vec::new();
+                    for obj in casks_arr {
+                        if let Some(token) = obj.get("token").and_then(|v| v.as_str()) {
+                            let name = obj
+                                .get("name")
+                                .and_then(|n| n.as_array())
+                                .and_then(|arr| arr.first())
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(token)
+                                .to_string();
+                            let version = obj
+                                .get("version")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("latest")
+                                .to_string();
+                            let desc = obj
+                                .get("desc")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let homepage = obj
+                                .get("homepage")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let auto_updates = obj
+                                .get("auto_updates")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+
+                            let mut app_artifacts = Vec::new();
+                            if let Some(artifacts) = obj.get("artifacts").and_then(|a| a.as_array()) {
+                                for art in artifacts {
+                                    if let Some(art_obj) = art.as_object() {
+                                        if let Some(app_list) = art_obj.get("app").and_then(|v| v.as_array()) {
+                                            for app_val in app_list {
+                                                if let Some(app_str) = app_val.as_str() {
+                                                    app_artifacts.push(app_str.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            items.push(CaskCatalogItem {
+                                token: token.to_string(),
+                                name,
+                                version,
+                                desc,
+                                homepage,
+                                app_artifacts,
+                                auto_updates,
+                            });
+                        }
+                    }
+                    if !items.is_empty() {
+                        return items;
+                    }
+                }
+            }
+        }
+    }
+
+    Vec::new()
+}
+
+pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
+    // 1. Get already installed casks from Homebrew
+    let installed_val = get_installed_json().await.unwrap_or(serde_json::Value::Null);
+    let mut installed_cask_tokens = std::collections::HashSet::new();
+
+    if let Some(casks) = installed_val.get("casks").and_then(|c| c.as_array()) {
+        for cask in casks {
+            if let Some(token) = cask.get("token").and_then(|t| t.as_str()) {
+                installed_cask_tokens.insert(token.to_lowercase());
+            }
+        }
+    }
+
+    // 2. Load cask catalog to correlate
+    let catalog = load_cask_catalog();
+    let mut artifact_map: std::collections::HashMap<String, &CaskCatalogItem> = std::collections::HashMap::new();
+    let mut token_map: std::collections::HashMap<String, &CaskCatalogItem> = std::collections::HashMap::new();
+
+    for item in &catalog {
+        token_map.insert(item.token.to_lowercase(), item);
+        for art in &item.app_artifacts {
+            artifact_map.insert(art.to_lowercase(), item);
+        }
+        artifact_map.insert(format!("{}.app", item.token.to_lowercase()), item);
+    }
+
+    // 3. Scan directories: /Applications and ~/Applications
+    let mut search_dirs = vec![PathBuf::from("/Applications")];
+    if let Ok(home) = std::env::var("HOME") {
+        let user_apps = PathBuf::from(home).join("Applications");
+        if user_apps.exists() {
+            search_dirs.push(user_apps);
+        }
+    }
+
+    let mut detected = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
+
+    for dir in search_dirs {
+        let read_dir = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if !path.is_dir() || path.extension().and_then(|e| e.to_str()) != Some("app") {
+                continue;
+            }
+
+            let path_str = path.to_string_lossy().to_string();
+            if seen_paths.contains(&path_str) {
+                continue;
+            }
+            seen_paths.insert(path_str.clone());
+
+            let app_filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let app_filename_lower = app_filename.to_lowercase();
+
+            // Skip internal / Apple / system / self apps
+            if app_filename_lower == "brew-hub.app" || app_filename_lower.starts_with("apple") {
+                continue;
+            }
+
+            // Inspect Info.plist
+            let plist_path = path.join("Contents/Info.plist");
+            let mut bundle_id: Option<String> = None;
+            let mut app_name = app_filename.trim_end_matches(".app").to_string();
+            let mut installed_version: Option<String> = None;
+
+            if plist_path.exists() {
+                if let Ok(plist_val) = plist::Value::from_file(&plist_path) {
+                    if let Some(dict) = plist_val.as_dictionary() {
+                        if let Some(bid) = dict.get("CFBundleIdentifier").and_then(|v| v.as_string()) {
+                            // Exclude Apple system apps
+                            if bid.starts_with("com.apple.") {
+                                continue;
+                            }
+                            bundle_id = Some(bid.to_string());
+                        }
+                        if let Some(n) = dict
+                            .get("CFBundleName")
+                            .or_else(|| dict.get("CFBundleDisplayName"))
+                            .and_then(|v| v.as_string())
+                        {
+                            if !n.trim().is_empty() {
+                                app_name = n.to_string();
+                            }
+                        }
+                        if let Some(v) = dict
+                            .get("CFBundleShortVersionString")
+                            .or_else(|| dict.get("CFBundleVersion"))
+                            .and_then(|v| v.as_string())
+                        {
+                            installed_version = Some(v.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Match against cask catalog
+            let matched_cask = artifact_map
+                .get(&app_filename_lower)
+                .or_else(|| {
+                    let token_hyphen = app_name.to_lowercase().replace(' ', "-").replace('_', "-");
+                    token_map.get(&token_hyphen)
+                })
+                .or_else(|| {
+                    let sanitized = app_filename_lower.trim_end_matches(".app").replace(' ', "-");
+                    token_map.get(&sanitized)
+                });
+
+            if let Some(cask) = matched_cask {
+                // If this cask is already tracked by Homebrew, skip
+                if installed_cask_tokens.contains(&cask.token.to_lowercase()) {
+                    continue;
+                }
+
+                detected.push(UnmanagedApp {
+                    name: app_name,
+                    path: path_str,
+                    bundle_id,
+                    installed_version,
+                    cask_token: cask.token.clone(),
+                    cask_name: cask.name.clone(),
+                    cask_version: cask.version.clone(),
+                    cask_desc: cask.desc.clone(),
+                    cask_homepage: cask.homepage.clone(),
+                    auto_updates: cask.auto_updates,
+                });
+            }
+        }
+    }
+
+    detected.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(detected)
+}
+
+pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
+    let mut cmd = create_brew_command();
+    cmd.args(["install", "--cask", "--adopt", token]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew install --cask --adopt {}: {}", token, e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String> {
+    if let Some(custom_path) = path {
+        let p = PathBuf::from(&custom_path);
+        if p.exists() {
+            return std::fs::read_to_string(&p)
+                .map_err(|e| format!("Failed to read Brewfile at {}: {}", custom_path, e));
+        } else {
+            return Err(format!("Brewfile at {} does not exist", custom_path));
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let standard_paths = [
+            PathBuf::from(&home).join(".Brewfile"),
+            PathBuf::from(&home).join(".config/homebrew/Brewfile"),
+        ];
+        for sp in &standard_paths {
+            if sp.exists() {
+                if let Ok(content) = std::fs::read_to_string(sp) {
+                    return Ok(content);
+                }
+            }
+        }
+    }
+
+    let mut cmd = create_brew_command();
+    cmd.args(["bundle", "dump", "--file=-", "--force"]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run brew bundle dump: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+pub async fn save_brewfile(content: String, path: Option<String>) -> Result<String, String> {
+    let target_path = if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        let home = std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
+        PathBuf::from(home).join(".Brewfile")
+    };
+
+    if let Some(parent) = target_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    std::fs::write(&target_path, content)
+        .map_err(|e| format!("Failed to write Brewfile to {}: {}", target_path.display(), e))?;
+
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+pub async fn check_brewfile(path: Option<String>, content: Option<String>) -> Result<BrewfileCheckResult, String> {
+    let check_file_path = if let Some(text) = content {
+        let temp_dir = std::env::temp_dir().join("brew-hub");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let temp_file = temp_dir.join("Brewfile.check");
+        std::fs::write(&temp_file, text)
+            .map_err(|e| format!("Failed to write temporary check Brewfile: {}", e))?;
+        temp_file
+    } else if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+        PathBuf::from(home).join(".Brewfile")
+    };
+
+    let mut cmd = create_brew_command();
+    cmd.args([
+        "bundle",
+        "check",
+        &format!("--file={}", check_file_path.display()),
+        "--verbose",
+        "--no-upgrade",
+    ]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run brew bundle check: {}", e))?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = format!("{}\n{}", stdout_str, stderr_str);
+
+    let satisfied = output.status.success() || combined.contains("The Brewfile's dependencies are satisfied.");
+    let mut missing_items = Vec::new();
+
+    for line in combined.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('→') {
+            missing_items.push(trimmed.trim_start_matches('→').trim().to_string());
+        }
+    }
+
+    Ok(BrewfileCheckResult {
+        satisfied,
+        missing_count: missing_items.len(),
+        missing_items,
+        raw_output: combined,
+    })
+}
+
+pub async fn install_brewfile(
+    path: Option<String>,
+    content: Option<String>,
+    no_upgrade: bool,
+) -> Result<CommandOutput, String> {
+    let install_file_path = if let Some(text) = content {
+        let temp_dir = std::env::temp_dir().join("brew-hub");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let temp_file = temp_dir.join("Brewfile.install");
+        std::fs::write(&temp_file, text)
+            .map_err(|e| format!("Failed to write temporary install Brewfile: {}", e))?;
+        temp_file
+    } else if let Some(p) = path {
+        PathBuf::from(p)
+    } else {
+        let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+        PathBuf::from(home).join(".Brewfile")
+    };
+
+    let mut cmd = create_brew_command();
+    let mut args = vec![
+        "bundle".to_string(),
+        "install".to_string(),
+        format!("--file={}", install_file_path.display()),
+        "--verbose".to_string(),
+    ];
+    if no_upgrade {
+        args.push("--no-upgrade".to_string());
+    }
+    cmd.args(&args);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew bundle install: {}", e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+pub async fn export_brewfile_to_path(target_path: &str) -> Result<CommandOutput, String> {
+    let mut cmd = create_brew_command();
+    cmd.args(["bundle", "dump", &format!("--file={}", target_path), "--force"]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to export Brewfile to {}: {}", target_path, e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +971,40 @@ mod tests {
             let askpass_path = PathBuf::from(sudo_askpass);
             assert!(askpass_path.exists());
             assert!(askpass_path.ends_with("brew-hub-askpass.sh"));
+        }
+    }
+
+    #[test]
+    fn test_brewfile_check_parsing_satisfied() {
+        let sample = "The Brewfile's dependencies are satisfied.\n";
+        let satisfied = sample.contains("The Brewfile's dependencies are satisfied.");
+        assert!(satisfied);
+    }
+
+    #[test]
+    fn test_brewfile_check_parsing_missing() {
+        let sample = "brew bundle can't satisfy your Brewfile's dependencies.\n→ Cask iterm2 needs to be installed.\n→ Formula cowsay needs to be installed.\n";
+        let mut missing_items = Vec::new();
+        for line in sample.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('→') {
+                missing_items.push(trimmed.trim_start_matches('→').trim().to_string());
+            }
+        }
+        assert_eq!(missing_items.len(), 2);
+        assert_eq!(missing_items[0], "Cask iterm2 needs to be installed.");
+        assert_eq!(missing_items[1], "Formula cowsay needs to be installed.");
+    }
+
+    #[tokio::test]
+    async fn test_scan_unmanaged_apps_runnable() {
+        let res = scan_unmanaged_apps().await;
+        assert!(res.is_ok());
+        let apps = res.unwrap();
+        // Verifies structure without crashing on local environment
+        for app in apps {
+            assert!(!app.cask_token.is_empty());
+            assert!(!app.name.is_empty());
         }
     }
 }

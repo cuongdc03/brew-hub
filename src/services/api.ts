@@ -7,6 +7,8 @@ import {
   SearchResult,
   ServiceInfo,
   SystemInfo,
+  UnmanagedApp,
+  BrewfileCheckResult,
 } from "../types/brew";
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
@@ -70,4 +72,43 @@ export async function searchPackages(query: string): Promise<SearchResult> {
 
 export async function checkDoctor(): Promise<CommandOutput> {
   return await invoke<CommandOutput>("check_doctor");
+}
+
+export async function fetchUnmanagedApps(): Promise<UnmanagedApp[]> {
+  return await invoke<UnmanagedApp[]>("scan_unmanaged");
+}
+
+export async function adoptCask(token: string): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("adopt_cask", { token });
+}
+
+export async function fetchBrewfile(path?: string): Promise<string> {
+  return await invoke<string>("get_brewfile", { path });
+}
+
+export async function saveBrewfile(content: string, path?: string): Promise<string> {
+  return await invoke<string>("save_brewfile_content", { content, path });
+}
+
+export async function checkBrewfileDependencies(
+  path?: string,
+  content?: string
+): Promise<BrewfileCheckResult> {
+  return await invoke<BrewfileCheckResult>("check_brewfile_dependencies", { path, content });
+}
+
+export async function installBrewfileDependencies(
+  path?: string,
+  content?: string,
+  noUpgrade = false
+): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("install_brewfile_dependencies", {
+    path,
+    content,
+    noUpgrade,
+  });
+}
+
+export async function exportBrewfile(targetPath: string): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("export_brewfile", { targetPath });
 }
