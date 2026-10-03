@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::process::Command;
+use tokio::sync::Mutex;
+
+/// Global lock to serialize mutating Homebrew operations (install, upgrade, uninstall, adopt, cleanup, autoremove, bundle install).
+/// This prevents concurrent `brew` invocations from failing with "Another active Homebrew process is already in progress".
+pub static BREW_MUTATION_LOCK: Mutex<()> = Mutex::const_new(());
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
@@ -286,6 +291,7 @@ pub async fn get_cleanup_dry_run() -> Result<CleanupPreview, String> {
 }
 
 pub async fn run_cleanup_execute() -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
     let mut cmd = create_brew_command();
     cmd.args(["cleanup", "--prune=all"]);
 
@@ -302,6 +308,7 @@ pub async fn run_cleanup_execute() -> Result<CommandOutput, String> {
 }
 
 pub async fn run_autoremove_execute() -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
     let mut cmd = create_brew_command();
     cmd.args(["autoremove"]);
 
@@ -322,6 +329,7 @@ pub async fn package_operation(
     name: &str,
     is_cask: bool,
 ) -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
     let mut cmd = create_brew_command();
     let mut args = vec![operation];
 
@@ -715,6 +723,7 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
 }
 
 pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
     let mut cmd = create_brew_command();
     cmd.args(["install", "--cask", "--adopt", token]);
 
@@ -844,6 +853,7 @@ pub async fn install_brewfile(
     content: Option<String>,
     no_upgrade: bool,
 ) -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
     let install_file_path = if let Some(text) = content {
         let temp_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&temp_dir);
@@ -1006,6 +1016,34 @@ mod tests {
             assert!(!app.cask_token.is_empty());
             assert!(!app.name.is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn test_brew_mutation_lock_mutual_exclusion() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let inside_critical_section = Arc::new(AtomicBool::new(false));
+        let flag1 = inside_critical_section.clone();
+        let flag2 = inside_critical_section.clone();
+
+        let t1 = tokio::spawn(async move {
+            let _lock = BREW_MUTATION_LOCK.lock().await;
+            assert!(!flag1.swap(true, Ordering::SeqCst), "Critical section was breached");
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            flag1.store(false, Ordering::SeqCst);
+        });
+
+        let t2 = tokio::spawn(async move {
+            let _lock = BREW_MUTATION_LOCK.lock().await;
+            assert!(!flag2.swap(true, Ordering::SeqCst), "Critical section was breached");
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            flag2.store(false, Ordering::SeqCst);
+        });
+
+        let (r1, r2) = tokio::join!(t1, t2);
+        assert!(r1.is_ok());
+        assert!(r2.is_ok());
     }
 }
 
