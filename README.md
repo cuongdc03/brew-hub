@@ -3,6 +3,12 @@
 A modern, high-performance desktop application for managing [Homebrew](https://brew.sh) packages, applications, background services, and disk storage on macOS. Built with **Tauri v2 (Rust)** and **React 19 + TypeScript + Tailwind CSS**.
 
 <p align="center">
+  <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE"><img src="https://img.shields.io/badge/Donate-PayPal-00457C?style=flat-square&logo=paypal&logoColor=white" alt="Donate with PayPal" /></a>
+  <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=flat-square&logo=buy-me-a-coffee" alt="Buy Me A Coffee" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT License" /></a>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/overview.png" alt="Brew Hub Dashboard" width="90%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.4);" />
 </p>
 
@@ -117,6 +123,22 @@ Or right-click (Control-click) `brew-hub.app` in Finder and select **Open**.
 ## 🔒 Security & Privilege Model
 
 Brew Hub operates as a client on top of the native Homebrew executable. For privileged actions (such as removing casks with launch services, root helpers, or system daemons), Brew Hub uses native macOS authorization (`SUDO_ASKPASS`) via AppleScript dialogs. No passwords or credentials are ever stored, cached, or logged.
+
+---
+
+## ☕ Support the Project
+
+If you find Brew Hub useful, consider supporting its continued maintenance and development:
+
+<p align="left">
+  <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE">
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me A Coffee" />
+  </a>
+  &nbsp;
+  <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE">
+    <img src="https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Donate with PayPal" />
+  </a>
+</p>
 
 ---
 
