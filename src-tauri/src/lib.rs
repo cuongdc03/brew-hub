@@ -161,7 +161,7 @@ pub fn run() {
                             }
                             "check" => {
                                 let app_handle = app.clone();
-                                tokio::spawn(async move {
+                                tauri::async_runtime::spawn(async move {
                                     if let Ok(outdated_val) = brew::get_outdated_json().await {
                                         let f_count = outdated_val
                                             .get("formulae")
@@ -221,7 +221,7 @@ pub fn run() {
 
                 // Background Periodic Check for Updates (startup + every 1 hour)
                 let bg_handle = app.handle().clone();
-                tokio::spawn(async move {
+                tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(12)).await;
                     loop {
                         if let Ok(outdated_val) = brew::get_outdated_json().await {
