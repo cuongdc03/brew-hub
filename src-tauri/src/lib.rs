@@ -3,10 +3,10 @@ mod brew;
 use brew::{
     adopt_cask_package, check_brew_doctor, check_brewfile, export_brewfile_to_path,
     get_brewfile_content, get_cleanup_dry_run, get_installed_json, get_outdated_json,
-    get_services_list, get_system_info, install_brewfile, manage_service_action,
-    package_operation, run_autoremove_execute, run_cleanup_execute, save_brewfile,
-    scan_unmanaged_apps, search_brew, BrewfileCheckResult, CleanupPreview, CommandOutput,
-    SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    get_services_list, get_system_info, install_brewfile, manage_service_action, package_operation,
+    run_autoremove_execute, run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew,
+    BrewfileCheckResult, CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo,
+    UnmanagedApp,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},

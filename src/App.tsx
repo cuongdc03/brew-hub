@@ -45,6 +45,8 @@ export function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [casks, setCasks] = useState<CaskItem[]>([]);
   const [unmanagedApps, setUnmanagedApps] = useState<UnmanagedApp[]>([]);
+  const [isScanningUnmanaged, setIsScanningUnmanaged] = useState(false);
+  const [unmanagedAppsError, setUnmanagedAppsError] = useState<string | null>(null);
   const [formulae, setFormulae] = useState<FormulaItem[]>([]);
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
@@ -67,6 +69,21 @@ export function App() {
     output: "",
     isLoading: false,
   });
+
+  const loadUnmanagedApps = async () => {
+    setIsScanningUnmanaged(true);
+    setUnmanagedAppsError(null);
+    try {
+      const apps = await fetchUnmanagedApps();
+      setUnmanagedApps(apps);
+    } catch (err: any) {
+      console.warn("Failed to scan unmanaged apps:", err);
+      const msg = typeof err === "string" ? err : err?.message || "Failed to scan applications";
+      setUnmanagedAppsError(msg);
+    } finally {
+      setIsScanningUnmanaged(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -99,10 +116,6 @@ export function App() {
       fetchCleanupPreview()
         .then((cln) => setCleanupPreview(cln))
         .catch((err) => console.warn("Failed to fetch cleanup preview:", err));
-
-      fetchUnmanagedApps()
-        .then((apps) => setUnmanagedApps(apps))
-        .catch((err) => console.warn("Failed to scan unmanaged apps:", err));
     } catch (err) {
       console.error("Error loading Homebrew data:", err);
     } finally {
@@ -112,6 +125,7 @@ export function App() {
 
   useEffect(() => {
     loadData();
+    loadUnmanagedApps();
   }, []);
 
   // Listen for macOS menu-bar tray actions
@@ -314,6 +328,9 @@ export function App() {
         isLoading: false,
       }));
       loadData();
+      if (res.success) {
+        loadUnmanagedApps();
+      }
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
@@ -545,8 +562,11 @@ export function App() {
           subtitle={headerMeta.subtitle}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
-          onRefresh={loadData}
-          isLoading={isLoading}
+          onRefresh={() => {
+            loadData();
+            loadUnmanagedApps();
+          }}
+          isLoading={isLoading || isScanningUnmanaged}
           showSearchInput={headerMeta.showSearch}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen((prev) => !prev)}
@@ -583,6 +603,9 @@ export function App() {
                 casks={casks}
                 outdatedList={outdated.casks || []}
                 unmanagedApps={unmanagedApps}
+                unmanagedAppsError={unmanagedAppsError}
+                isScanningUnmanaged={isScanningUnmanaged}
+                onRefreshUnmanaged={loadUnmanagedApps}
                 searchTerm={searchTerm}
                 onUpgrade={(name) => handleUpgradePackage(name, true)}
                 onUninstall={(name) => handleUninstallPackage(name, true)}

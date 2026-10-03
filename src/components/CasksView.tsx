@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Sparkles,
   DownloadCloud,
+  RotateCw,
 } from "lucide-react";
 import { CaskItem, OutdatedPackage, UnmanagedApp } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
@@ -19,6 +20,9 @@ interface CasksViewProps {
   casks: CaskItem[];
   outdatedList: OutdatedPackage[];
   unmanagedApps?: UnmanagedApp[];
+  unmanagedAppsError?: string | null;
+  isScanningUnmanaged?: boolean;
+  onRefreshUnmanaged?: () => void;
   searchTerm: string;
   onUpgrade: (name: string) => void;
   onUninstall: (name: string) => void;
@@ -33,6 +37,9 @@ export const CasksView: React.FC<CasksViewProps> = ({
   casks,
   outdatedList,
   unmanagedApps = [],
+  unmanagedAppsError = null,
+  isScanningUnmanaged = false,
+  onRefreshUnmanaged,
   searchTerm,
   onUpgrade,
   onUninstall,
@@ -138,7 +145,31 @@ export const CasksView: React.FC<CasksViewProps> = ({
 
       {filterMode === "unmanaged" ? (
         /* Unmanaged / Adoptable Apps View */
-        filteredUnmanaged.length === 0 ? (
+        unmanagedAppsError && filteredUnmanaged.length === 0 ? (
+          <div className="py-16 text-center text-zinc-400 border border-red-500/20 bg-red-500/5 rounded-2xl p-6">
+            <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+            <p className="text-sm font-semibold text-zinc-200">Failed to Scan Applications</p>
+            <p className="text-xs text-zinc-400 mt-1 max-w-md mx-auto">{unmanagedAppsError}</p>
+            {onRefreshUnmanaged && (
+              <button
+                onClick={onRefreshUnmanaged}
+                disabled={isScanningUnmanaged}
+                className="mt-4 px-4 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium border border-red-500/30 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isScanningUnmanaged ? "animate-spin" : ""}`} />
+                {isScanningUnmanaged ? "Scanning..." : "Retry Scan"}
+              </button>
+            )}
+          </div>
+        ) : isScanningUnmanaged && filteredUnmanaged.length === 0 ? (
+          <div className="py-24 text-center text-zinc-500 border border-white/5 rounded-2xl">
+            <div className="w-8 h-8 mx-auto mb-3 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-zinc-300">Scanning /Applications...</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              Matching installed desktop applications against the Homebrew cask catalog
+            </p>
+          </div>
+        ) : filteredUnmanaged.length === 0 ? (
           <div className="py-24 text-center text-zinc-500 border border-dashed border-white/8 rounded-2xl">
             <Sparkles className="w-12 h-12 mx-auto mb-3 text-[#30D158] opacity-60" />
             <p className="text-sm font-semibold text-zinc-300">No unmanaged applications detected</p>
@@ -146,6 +177,16 @@ export const CasksView: React.FC<CasksViewProps> = ({
               All detected desktop applications in /Applications are already managed by Homebrew or
               Apple native system services.
             </p>
+            {onRefreshUnmanaged && (
+              <button
+                onClick={onRefreshUnmanaged}
+                disabled={isScanningUnmanaged}
+                className="mt-4 px-3.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium border border-white/10 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isScanningUnmanaged ? "animate-spin" : ""}`} />
+                Rescan Applications
+              </button>
+            )}
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
@@ -170,9 +211,35 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       </div>
                     </div>
 
-                    <span className="text-[10px] font-medium font-mono px-2 py-0.5 rounded-full bg-[#BF5AF2]/15 text-[#BF5AF2] border border-[#BF5AF2]/30 shrink-0">
-                      Unmanaged
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {app.match_confidence === "artifact" && (
+                        <span
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                          title="High confidence: Exact app bundle artifact match"
+                        >
+                          Exact
+                        </span>
+                      )}
+                      {app.match_confidence === "bundle_id" && (
+                        <span
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                          title="High confidence: CFBundleIdentifier match"
+                        >
+                          Bundle ID
+                        </span>
+                      )}
+                      {app.match_confidence === "token" && (
+                        <span
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-500/15 text-zinc-400 border border-zinc-500/30"
+                          title="Heuristic match: App name to cask token"
+                        >
+                          Name
+                        </span>
+                      )}
+                      <span className="text-[10px] font-medium font-mono px-2 py-0.5 rounded-full bg-[#BF5AF2]/15 text-[#BF5AF2] border border-[#BF5AF2]/30">
+                        Unmanaged
+                      </span>
+                    </div>
                   </div>
 
                   <p className="text-xs text-zinc-400 mt-3 line-clamp-2 leading-relaxed">
@@ -214,6 +281,7 @@ export const CasksView: React.FC<CasksViewProps> = ({
                 <tr className="border-b border-white/6 bg-black/30 text-zinc-400 font-medium">
                   <th className="py-2.5 px-4 font-medium">Application</th>
                   <th className="py-2.5 px-4 font-medium">Cask Token</th>
+                  <th className="py-2.5 px-4 font-medium">Match</th>
                   <th className="py-2.5 px-4 font-medium">Local Version</th>
                   <th className="py-2.5 px-4 font-medium">Cask Version</th>
                   <th className="py-2.5 px-4 font-medium text-right">Actions</th>
@@ -229,6 +297,23 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       </div>
                     </td>
                     <td className="py-2.5 px-4 font-mono text-zinc-400">{app.cask_token}</td>
+                    <td className="py-2.5 px-4">
+                      {app.match_confidence === "artifact" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          Exact
+                        </span>
+                      )}
+                      {app.match_confidence === "bundle_id" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                          Bundle ID
+                        </span>
+                      )}
+                      {app.match_confidence === "token" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-500/15 text-zinc-400 border border-zinc-500/30">
+                          Name
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-4 font-mono text-zinc-300">
                       {app.installed_version || "Detected"}
                     </td>
