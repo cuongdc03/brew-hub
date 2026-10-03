@@ -9,6 +9,7 @@ import {
   SystemInfo,
   UnmanagedApp,
   BrewfileCheckResult,
+  AppSettings,
 } from "../types/brew";
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
@@ -23,12 +24,24 @@ export async function fetchInstalledPackages(): Promise<InstalledData> {
   };
 }
 
-export async function fetchOutdatedPackages(): Promise<OutdatedData> {
-  const data = await invoke<any>("get_outdated");
+export async function fetchOutdatedPackages(greedy = false): Promise<OutdatedData> {
+  const data = await invoke<any>("get_outdated", { greedy });
   return {
     formulae: data.formulae || [],
     casks: data.casks || [],
   };
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  return await invoke<AppSettings>("get_settings");
+}
+
+export async function updateSettings(newSettings: AppSettings): Promise<AppSettings> {
+  return await invoke<AppSettings>("update_settings", { newSettings });
+}
+
+export async function updateTrayBadge(count: number): Promise<void> {
+  return await invoke<void>("update_tray_badge", { count });
 }
 
 export async function fetchServices(): Promise<ServiceInfo[]> {

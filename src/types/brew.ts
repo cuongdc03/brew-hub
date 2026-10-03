@@ -104,3 +104,14 @@ export interface BrewfileCheckResult {
   missing_items: string[];
   raw_output: string;
 }
+
+export interface AppSettings {
+  check_interval: string; // "1h" | "6h" | "24h" | "never"
+  notify_only_changed: boolean;
+  include_greedy: boolean;
+  launch_at_login: boolean;
+  keep_in_menu_bar: boolean;
+  show_dock_icon: boolean;
+  ignored_casks: string[];
+}
+
