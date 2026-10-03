@@ -40,6 +40,10 @@ rm -rf "$INSTALL_DIR/$APP_NAME"
 cp -R "$MOUNT_POINT/$APP_NAME" "$INSTALL_DIR/"
 
 echo "🛡️  Configuring macOS Gatekeeper authorization..."
+# Note on quarantine: macOS applies the 'com.apple.quarantine' attribute to files downloaded via curl/web.
+# Because open-source community releases may not carry an Apple Developer ID certificate/notarization,
+# removing this attribute with 'xattr -cr' allows the app to launch on macOS Gatekeeper without manual system override.
+# Users desiring strict Apple Notarization can install via Homebrew Cask or build locally from source.
 xattr -cr "$INSTALL_DIR/$APP_NAME"
 
 echo "⏏️  Cleaning up..."
