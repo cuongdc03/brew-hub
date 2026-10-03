@@ -32,11 +32,6 @@ export const TerminalModal: React.FC<TerminalModalProps> = ({
         {/* Window Bar */}
         <div className="px-4 py-3 bg-zinc-900/90 border-b border-white/8 flex items-center justify-between select-none">
           <div className="flex items-center gap-2.5">
-            <div className="flex items-center gap-2 mr-2">
-              <span className="w-3 h-3 rounded-full bg-red-500/90 inline-block shadow-xs" />
-              <span className="w-3 h-3 rounded-full bg-amber-500/90 inline-block shadow-xs" />
-              <span className="w-3 h-3 rounded-full bg-emerald-500/90 inline-block shadow-xs" />
-            </div>
             <TerminalIcon className="w-3.5 h-3.5 text-zinc-400" />
             <span className="text-xs font-mono font-medium text-zinc-200 truncate max-w-md">
               {title}
