@@ -8,17 +8,26 @@ import {
   Search,
   Activity,
   Cpu,
+  FileCode2,
 } from "lucide-react";
 import { SystemInfo } from "../types/brew";
 import { BrewHubLogo } from "./BrewHubLogo";
 
-export type TabType = "dashboard" | "casks" | "formulae" | "services" | "cleanup" | "search";
+export type TabType =
+  | "dashboard"
+  | "casks"
+  | "formulae"
+  | "services"
+  | "cleanup"
+  | "brewfile"
+  | "search";
 
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
   counts: {
     casks: number;
+    unmanagedCasks?: number;
     formulae: number;
     servicesRunning: number;
     outdated: number;
@@ -63,7 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "casks" as TabType,
           label: "Applications",
           icon: AppWindow,
-          badge: counts.casks > 0 ? `${counts.casks}` : undefined,
+          badge:
+            counts.unmanagedCasks && counts.unmanagedCasks > 0
+              ? `${counts.casks} (+${counts.unmanagedCasks})`
+              : counts.casks > 0
+              ? `${counts.casks}`
+              : undefined,
           badgeColor: "bg-white/[0.06] text-zinc-400 border border-white/5",
         },
         {
@@ -94,6 +108,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ? counts.cleanupSpace
               : undefined,
           badgeColor: "bg-[#BF5AF2]/20 text-[#BF5AF2] border border-[#BF5AF2]/30",
+        },
+        {
+          id: "brewfile" as TabType,
+          label: "Brewfile & Sync",
+          icon: FileCode2,
         },
       ],
     },

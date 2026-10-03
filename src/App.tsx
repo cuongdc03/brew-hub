@@ -6,10 +6,12 @@ import { CasksView } from "./components/CasksView";
 import { FormulaeView } from "./components/FormulaeView";
 import { ServicesView } from "./components/ServicesView";
 import { CleanupView } from "./components/CleanupView";
+import { BrewfileView } from "./components/BrewfileView";
 import { SearchView } from "./components/SearchView";
 import { TerminalModal } from "./components/TerminalModal";
 import { PackageInspector, InspectedItem } from "./components/PackageInspector";
 import { ArrowUpCircle, Zap } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import {
   CaskItem,
   CleanupPreview,
@@ -17,8 +19,10 @@ import {
   OutdatedData,
   ServiceInfo,
   SystemInfo,
+  UnmanagedApp,
 } from "./types/brew";
 import {
+  adoptCask,
   checkDoctor,
   executeAutoremove,
   executeCleanup,
@@ -27,6 +31,7 @@ import {
   fetchOutdatedPackages,
   fetchServices,
   fetchSystemInfo,
+  fetchUnmanagedApps,
   installPackage,
   manageService,
   uninstallPackage,
@@ -39,6 +44,7 @@ export function App() {
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [casks, setCasks] = useState<CaskItem[]>([]);
+  const [unmanagedApps, setUnmanagedApps] = useState<UnmanagedApp[]>([]);
   const [formulae, setFormulae] = useState<FormulaItem[]>([]);
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
@@ -93,6 +99,10 @@ export function App() {
       fetchCleanupPreview()
         .then((cln) => setCleanupPreview(cln))
         .catch((err) => console.warn("Failed to fetch cleanup preview:", err));
+
+      fetchUnmanagedApps()
+        .then((apps) => setUnmanagedApps(apps))
+        .catch((err) => console.warn("Failed to scan unmanaged apps:", err));
     } catch (err) {
       console.error("Error loading Homebrew data:", err);
     } finally {
@@ -103,6 +113,19 @@ export function App() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Listen for macOS menu-bar tray actions
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen("tray-upgrade-all", () => {
+      handleUpgradeAll();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [outdated]);
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -270,6 +293,71 @@ export function App() {
     }
   };
 
+  const handleAdoptApp = async (token: string) => {
+    setTerminalState({
+      isOpen: true,
+      title: `brew install --cask --adopt ${token}`,
+      output: `==> Running: brew install --cask --adopt ${token}...\nAdopting existing local application bundle into Homebrew...\n`,
+      isLoading: true,
+    });
+    setIsActionRunning(true);
+
+    try {
+      const res = await adoptCask(token);
+      setTerminalState((prev) => ({
+        ...prev,
+        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Adoption ${
+          res.success
+            ? "completed successfully! The application is now tracked by Homebrew."
+            : "finished."
+        }`,
+        isLoading: false,
+      }));
+      loadData();
+    } catch (err: any) {
+      setTerminalState((prev) => ({
+        ...prev,
+        output: `${prev.output}\nError: ${err?.message || err}`,
+        isLoading: false,
+      }));
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
+  const handleRunCommandInTerminal = async (
+    title: string,
+    runAction: () => Promise<{ success: boolean; stdout: string; stderr: string }>
+  ) => {
+    setTerminalState({
+      isOpen: true,
+      title,
+      output: `==> Running: ${title}...\nPlease wait...\n`,
+      isLoading: true,
+    });
+    setIsActionRunning(true);
+
+    try {
+      const res = await runAction();
+      setTerminalState((prev) => ({
+        ...prev,
+        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Operation ${
+          res.success ? "completed successfully!" : "finished."
+        }`,
+        isLoading: false,
+      }));
+      loadData();
+    } catch (err: any) {
+      setTerminalState((prev) => ({
+        ...prev,
+        output: `${prev.output}\nError: ${err?.message || err}`,
+        isLoading: false,
+      }));
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
   const handleServiceAction = async (name: string, action: "start" | "stop" | "restart") => {
     setIsActionRunning(true);
     try {
@@ -408,6 +496,13 @@ export function App() {
           showSearch: false,
           canInspect: false,
         };
+      case "brewfile":
+        return {
+          title: "Brewfile & Sync",
+          subtitle: "Declarative package backup, migration, and dependency check",
+          showSearch: false,
+          canInspect: false,
+        };
       case "search":
         return {
           title: "Package Store",
@@ -433,6 +528,7 @@ export function App() {
         }}
         counts={{
           casks: casks.length,
+          unmanagedCasks: unmanagedApps.length,
           formulae: formulae.length,
           servicesRunning: runningServicesCount,
           outdated: totalOutdatedCount,
@@ -486,9 +582,11 @@ export function App() {
               <CasksView
                 casks={casks}
                 outdatedList={outdated.casks || []}
+                unmanagedApps={unmanagedApps}
                 searchTerm={searchTerm}
                 onUpgrade={(name) => handleUpgradePackage(name, true)}
                 onUninstall={(name) => handleUninstallPackage(name, true)}
+                onAdopt={handleAdoptApp}
                 isActionRunning={isActionRunning}
                 isLoading={isLoading}
                 selectedItem={selectedItem}
@@ -527,6 +625,13 @@ export function App() {
                 onRunAutoremove={handleRunAutoremove}
                 isActionRunning={isActionRunning}
                 isLoading={isLoading}
+              />
+            )}
+
+            {activeTab === "brewfile" && (
+              <BrewfileView
+                onRunCommandInTerminal={handleRunCommandInTerminal}
+                isActionRunning={isActionRunning}
               />
             )}
 
