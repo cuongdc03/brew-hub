@@ -47,8 +47,16 @@ export const CasksView: React.FC<CasksViewProps> = ({
   const [caskToUninstall, setCaskToUninstall] = useState<string | null>(null);
   const outdatedMap = new Map(outdatedList.map((o) => [o.name, o]));
 
+  const isCaskOutdated = (cask: CaskItem) => {
+    return (
+      outdatedMap.has(cask.token) ||
+      cask.outdated ||
+      Boolean(cask.installed && cask.installed !== cask.version)
+    );
+  };
+
   const filteredCasks = casks.filter((cask) => {
-    const isOutdated = outdatedMap.has(cask.token) || cask.outdated;
+    const isOutdated = isCaskOutdated(cask);
     if (filterMode === "outdated" && !isOutdated) return false;
 
     const q = searchTerm.toLowerCase();
@@ -87,7 +95,7 @@ export const CasksView: React.FC<CasksViewProps> = ({
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[#FF9F0A]" />
-            Updates ({outdatedList.length})
+            Updates ({casks.filter(isCaskOutdated).length})
           </button>
           <button
             onClick={() => setFilterMode("unmanaged")}
@@ -265,8 +273,11 @@ export const CasksView: React.FC<CasksViewProps> = ({
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {filteredCasks.map((cask) => {
-            const isOutdated = outdatedMap.has(cask.token) || cask.outdated;
+            const isVersionMismatch = Boolean(cask.installed && cask.installed !== cask.version);
+            const isOutdated = isCaskOutdated(cask);
             const outdatedInfo = outdatedMap.get(cask.token);
+            const installedVer = cask.installed || cask.version;
+            const targetVer = outdatedInfo?.current_version || (isVersionMismatch ? cask.version : null);
             const displayName =
               cask.name && cask.name.length > 0 ? cask.name[0] : cask.token;
 
@@ -333,12 +344,12 @@ export const CasksView: React.FC<CasksViewProps> = ({
 
                   {/* Version Tag */}
                   <div className="mt-3 flex items-center gap-2 text-xs font-mono">
-                    <span className="text-zinc-500">v{cask.version}</span>
-                    {isOutdated && outdatedInfo && (
+                    <span className="text-zinc-500">v{installedVer}</span>
+                    {isOutdated && targetVer && targetVer !== installedVer && (
                       <>
                         <span className="text-zinc-600">&rarr;</span>
                         <span className="text-[#FF9F0A] font-semibold">
-                          v{outdatedInfo.current_version}
+                          v{targetVer}
                         </span>
                       </>
                     )}
@@ -406,8 +417,11 @@ export const CasksView: React.FC<CasksViewProps> = ({
             </thead>
             <tbody className="divide-y divide-white/4">
               {filteredCasks.map((cask) => {
-                const isOutdated = outdatedMap.has(cask.token) || cask.outdated;
+                const isVersionMismatch = Boolean(cask.installed && cask.installed !== cask.version);
+                const isOutdated = isCaskOutdated(cask);
                 const outdatedInfo = outdatedMap.get(cask.token);
+                const installedVer = cask.installed || cask.version;
+                const targetVer = outdatedInfo?.current_version || (isVersionMismatch ? cask.version : null);
                 const displayName =
                   cask.name && cask.name.length > 0 ? cask.name[0] : cask.token;
 
@@ -446,7 +460,12 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       {cask.token}
                     </td>
                     <td className="py-2.5 px-4 font-mono text-zinc-400">
-                      v{cask.version}
+                      <span>v{installedVer}</span>
+                      {isOutdated && targetVer && targetVer !== installedVer && (
+                        <span className="text-[#FF9F0A] ml-1.5 font-semibold">
+                          &rarr; v{targetVer}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 px-4">
                       {isOutdated ? (
