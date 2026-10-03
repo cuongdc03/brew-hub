@@ -4,7 +4,7 @@ A modern, high-performance desktop application for managing [Homebrew](https://b
 
 <p align="center">
   <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE"><img src="https://img.shields.io/badge/Donate-PayPal-00457C?style=flat-square&logo=paypal&logoColor=white" alt="Donate with PayPal" /></a>
-  <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=flat-square&logo=buy-me-a-coffee" alt="Buy Me A Coffee" /></a>
+  <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Beer-🍺-f39c12?style=flat-square" alt="Buy Me A Beer" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square" alt="MIT License" /></a>
 </p>
 
@@ -126,13 +126,13 @@ Brew Hub operates as a client on top of the native Homebrew executable. For priv
 
 ---
 
-## ☕ Support the Project
+## 🍺 Support the Project
 
-If you find Brew Hub useful, consider supporting its continued maintenance and development:
+If you find Brew Hub useful, consider buying me a beer to support continued maintenance and development:
 
 <p align="left">
   <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE">
-    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me A Coffee" />
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Beer-🍺%20Donate-f39c12?style=for-the-badge" alt="Buy Me A Beer" />
   </a>
   &nbsp;
   <a href="https://www.paypal.com/ncp/payment/3R9QBM4UJJRSE">
