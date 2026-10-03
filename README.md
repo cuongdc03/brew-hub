@@ -64,25 +64,29 @@ A modern, high-performance desktop application for managing [Homebrew](https://b
 - Node.js (v20+) and `pnpm`
 - Rust (`rustc` & `cargo`)
 
-### ⚡ Quick Install (Recommended for macOS)
+### ⚡ Quick Install
 
-Install Brew Hub with a single command (downloads the latest release, installs to `/Applications`, and configures permissions automatically):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/cuongdc03/brew-hub/main/install/install.sh | bash
-```
-
-Or install via Homebrew Tap:
+#### Option 1: Via Homebrew Tap (Recommended)
 
 ```bash
 brew install --cask cuongdc03/tap/brew-hub
 ```
 
+#### Option 2: Via One-Line Shell Script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cuongdc03/brew-hub/main/install/install.sh | bash
+```
+
+#### Option 3: Manual DMG Download
+
+Download the latest `.dmg` release from [GitHub Releases](https://github.com/cuongdc03/brew-hub/releases).
+
 ---
 
 ### Local Development
 
-
+```bash
 # Install frontend dependencies
 pnpm install
 
