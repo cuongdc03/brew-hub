@@ -19,10 +19,18 @@ jobs:
             args: '--target aarch64-apple-darwin'
           - platform: 'macos-13'
             args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,7 +45,7 @@ jobs:
       - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || (matrix.platform == 'macos-13' && 'x86_64-apple-darwin' || '') }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
