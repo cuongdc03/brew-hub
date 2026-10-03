@@ -8,12 +8,15 @@ use brew::{
     scan_unmanaged_apps, search_brew, BrewfileCheckResult, CleanupPreview, CommandOutput,
     SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
 use tauri_plugin_notification::NotificationExt;
+
+static IS_QUITTING: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 async fn get_system() -> Result<SystemInfo, String> {
@@ -124,7 +127,7 @@ async fn export_brewfile(target_path: String) -> Result<CommandOutput, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -157,6 +160,7 @@ pub fn run() {
                                 }
                             }
                             "quit" => {
+                                IS_QUITTING.store(true, Ordering::SeqCst);
                                 app.exit(0);
                             }
                             "check" => {
@@ -255,6 +259,17 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                #[cfg(target_os = "macos")]
+                {
+                    if !IS_QUITTING.load(Ordering::SeqCst) {
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_system,
             get_installed,
@@ -277,6 +292,20 @@ pub fn run() {
             install_brewfile_dependencies,
             export_brewfile
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } => {
+            IS_QUITTING.store(true, Ordering::SeqCst);
+        }
+        tauri::RunEvent::Reopen { .. } => {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+        _ => {}
+    });
 }
