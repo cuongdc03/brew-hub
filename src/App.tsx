@@ -358,10 +358,22 @@ export function App() {
     }
   };
 
-  const handleServiceAction = async (name: string, action: "start" | "stop" | "restart") => {
+  const handleServiceAction = async (
+    name: string,
+    action: "start" | "stop" | "restart",
+    asRoot = false
+  ) => {
     setIsActionRunning(true);
     try {
-      await manageService(name, action);
+      const res = await manageService(name, action, asRoot);
+      if (!res.success) {
+        setTerminalState({
+          isOpen: true,
+          title: `brew services ${action} ${name}${asRoot ? " (privileged)" : ""}`,
+          output: `==> Running: brew services ${action} ${name}${asRoot ? " (privileged)" : ""}\n\n${res.stdout || ""}\n${res.stderr || "Service operation failed with non-zero exit code."}`,
+          isLoading: false,
+        });
+      }
       const updated = await fetchServices();
       setServices(updated);
     } catch (err: any) {
