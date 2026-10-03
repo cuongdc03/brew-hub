@@ -10,8 +10,9 @@ import { BrewfileView } from "./components/BrewfileView";
 import { SearchView } from "./components/SearchView";
 import { TerminalModal } from "./components/TerminalModal";
 import { PackageInspector, InspectedItem } from "./components/PackageInspector";
-import { ArrowUpCircle, Zap } from "lucide-react";
+import { ArrowUpCircle, Square, Zap } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
+import { useBrewOperation } from "./hooks/useBrewOperation";
 import {
   CaskItem,
   CleanupPreview,
@@ -22,20 +23,12 @@ import {
   UnmanagedApp,
 } from "./types/brew";
 import {
-  adoptCask,
-  checkDoctor,
-  executeAutoremove,
-  executeCleanup,
   fetchCleanupPreview,
   fetchInstalledPackages,
   fetchOutdatedPackages,
   fetchServices,
   fetchSystemInfo,
   fetchUnmanagedApps,
-  installPackage,
-  manageService,
-  uninstallPackage,
-  upgradePackage,
 } from "./services/api";
 
 export function App() {
@@ -54,19 +47,15 @@ export function App() {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [isActionRunning, setIsActionRunning] = useState(false);
-
-  const [terminalState, setTerminalState] = useState<{
-    isOpen: boolean;
-    title: string;
-    output: string;
-    isLoading: boolean;
-  }>({
-    isOpen: false,
-    title: "",
-    output: "",
-    isLoading: false,
-  });
+  const {
+    terminalState,
+    isActionRunning,
+    runOperation,
+    cancelActiveOperation,
+    closeTerminal,
+    openTerminal,
+    setTerminalState,
+  } = useBrewOperation();
 
   const loadData = async () => {
     try {
@@ -150,94 +139,20 @@ export function App() {
   };
 
   const handleUpgradePackage = async (name: string, isCask: boolean) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew upgrade ${isCask ? "--cask " : ""}${name}`,
-      output: `==> Running: brew upgrade ${isCask ? "--cask " : ""}${name}\nUpdating package binaries...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await upgradePackage(name, isCask);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Upgrade ${
-          res.success ? "completed successfully!" : "finished."
-        }`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    const title = `brew upgrade ${isCask ? "--cask " : ""}${name}`;
+    const args = isCask ? ["upgrade", "--cask", name] : ["upgrade", name];
+    await runOperation(title, args, { onSuccess: loadData });
   };
 
   const handleUpgradeAll = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew upgrade",
-      output: "==> Upgrading all outdated packages & applications...\nPlease wait...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const allOutdatedNames = [
-        ...outdated.formulae.map((f) => ({ name: f.name, isCask: false })),
-        ...outdated.casks.map((c) => ({ name: c.name, isCask: true })),
-      ];
-
-      for (const item of allOutdatedNames) {
-        setTerminalState((prev) => ({
-          ...prev,
-          output: `${prev.output}\n==> Upgrading ${item.name}...`,
-        }));
-        await upgradePackage(item.name, item.isCask);
-      }
-
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n\n==> All packages upgraded successfully!`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    await runOperation("brew upgrade", ["upgrade"], { onSuccess: loadData });
   };
 
   const handleUninstallPackage = async (name: string, isCask: boolean) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew uninstall ${isCask ? "--cask " : ""}${name}`,
-      output: `==> Running: brew uninstall ${isCask ? "--cask " : ""}${name}...\nPlease wait...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await uninstallPackage(name, isCask);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Uninstall ${
-          res.success ? "completed successfully!" : "finished."
-        }`,
-        isLoading: false,
-      }));
-      if (res.success) {
+    const title = `brew uninstall ${isCask ? "--cask " : ""}${name}`;
+    const args = isCask ? ["uninstall", "--cask", name] : ["uninstall", name];
+    await runOperation(title, args, {
+      onSuccess: () => {
         setSelectedItem((prev) => {
           if (!prev) return null;
           const prevName =
@@ -250,79 +165,26 @@ export function App() {
           }
           return prev;
         });
-      }
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+        loadData();
+      },
+    });
   };
 
   const handleInstallPackage = async (name: string, isCask: boolean) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew install ${isCask ? "--cask " : ""}${name}`,
-      output: `==> Running: brew install ${isCask ? "--cask " : ""}${name}...\nDownloading and fetching dependencies...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await installPackage(name, isCask);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Installation ${
-          res.success ? "completed successfully!" : "finished."
-        }`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    const title = `brew install ${isCask ? "--cask " : ""}${name}`;
+    const args = isCask ? ["install", "--cask", name] : ["install", name];
+    await runOperation(title, args, { onSuccess: loadData });
   };
 
   const handleAdoptApp = async (token: string) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew install --cask --adopt ${token}`,
-      output: `==> Running: brew install --cask --adopt ${token}...\nAdopting existing local application bundle into Homebrew...\n`,
-      isLoading: true,
+    const title = `brew install --cask --adopt ${token}`;
+    const args = ["install", "--cask", "--adopt", token];
+    await runOperation(title, args, {
+      onSuccess: () => {
+        loadData();
+        fetchUnmanagedApps().then(setUnmanagedApps).catch(() => {});
+      },
     });
-    setIsActionRunning(true);
-
-    try {
-      const res = await adoptCask(token);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Adoption ${
-          res.success
-            ? "completed successfully! The application is now tracked by Homebrew."
-            : "finished."
-        }`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
   };
 
   const handleRunCommandInTerminal = async (
@@ -333,9 +195,10 @@ export function App() {
       isOpen: true,
       title,
       output: `==> Running: ${title}...\nPlease wait...\n`,
-      isLoading: true,
+      status: "running",
+      exitCode: null,
+      activeOpId: null,
     });
-    setIsActionRunning(true);
 
     try {
       const res = await runAction();
@@ -344,119 +207,43 @@ export function App() {
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Operation ${
           res.success ? "completed successfully!" : "finished."
         }`,
-        isLoading: false,
+        status: res.success ? "success" : "error",
+        exitCode: res.success ? 0 : 1,
       }));
       loadData();
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
+        status: "error",
+        exitCode: 1,
       }));
-    } finally {
-      setIsActionRunning(false);
     }
   };
 
   const handleServiceAction = async (name: string, action: "start" | "stop" | "restart") => {
-    setIsActionRunning(true);
-    try {
-      await manageService(name, action);
-      const updated = await fetchServices();
-      setServices(updated);
-    } catch (err: any) {
-      setTerminalState({
-        isOpen: true,
-        title: `brew services ${action} ${name}`,
-        output: `Error executing service command: ${err?.message || err}`,
-        isLoading: false,
-      });
-    } finally {
-      setIsActionRunning(false);
-    }
+    await runOperation(`brew services ${action} ${name}`, ["services", action, name], {
+      onSuccess: async () => {
+        const updated = await fetchServices();
+        setServices(updated);
+      },
+    });
   };
 
   const handleRunCleanup = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew cleanup --prune=all",
-      output: "==> Purging Homebrew cache and obsolete downloaded archives...\n",
-      isLoading: true,
+    await runOperation("brew cleanup -s --prune=all", ["cleanup", "-s", "--prune=all"], {
+      onSuccess: () => {
+        fetchCleanupPreview().then((cln) => setCleanupPreview(cln)).catch(() => {});
+      },
     });
-    setIsActionRunning(true);
-
-    try {
-      const res = await executeCleanup();
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Disk cleanup complete!`,
-        isLoading: false,
-      }));
-      fetchCleanupPreview().then((cln) => setCleanupPreview(cln));
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError during cleanup: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
   };
 
   const handleRunAutoremove = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew autoremove",
-      output: "==> Removing unneeded orphaned formulas that were installed as dependencies...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await executeAutoremove();
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Autoremove complete!`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError during autoremove: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    await runOperation("brew autoremove", ["autoremove"], { onSuccess: loadData });
   };
 
   const handleCheckDoctor = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew doctor",
-      output: "==> Running Homebrew Doctor to diagnose system issues...\nPlease wait...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await checkDoctor();
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Diagnostic complete!`,
-        isLoading: false,
-      }));
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    await runOperation("brew doctor", ["doctor"]);
   };
 
   const getTabHeader = () => {
@@ -682,13 +469,43 @@ export function App() {
         )}
       </div>
 
+      {/* Background Running Indicator */}
+      {isActionRunning && !terminalState.isOpen && (
+        <div className="fixed bottom-5 right-5 z-40 flex items-center gap-3 bg-zinc-900/95 border border-amber-500/30 shadow-2xl shadow-black/60 rounded-full px-4 py-2 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span className="text-xs font-mono font-medium text-zinc-200 max-w-xs truncate">
+              {terminalState.title || "Operation running"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 pl-2 border-l border-white/10">
+            <button
+              onClick={openTerminal}
+              className="px-2.5 py-1 text-xs rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition-all cursor-pointer"
+            >
+              View Logs
+            </button>
+            <button
+              onClick={cancelActiveOperation}
+              className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+              title="Cancel operation"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Terminal Modal */}
       <TerminalModal
         isOpen={terminalState.isOpen}
-        onClose={() => setTerminalState((prev) => ({ ...prev, isOpen: false }))}
+        onClose={closeTerminal}
         title={terminalState.title}
         output={terminalState.output}
-        isLoading={terminalState.isLoading}
+        isLoading={isActionRunning}
+        status={terminalState.status}
+        exitCode={terminalState.exitCode}
+        onCancel={cancelActiveOperation}
       />
     </div>
   );

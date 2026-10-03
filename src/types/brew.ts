@@ -104,3 +104,10 @@ export interface BrewfileCheckResult {
   missing_items: string[];
   raw_output: string;
 }
+
+export type OpEvent =
+  | { type: "Stdout"; data: string }
+  | { type: "Stderr"; data: string }
+  | { type: "Exit"; data: number | null }
+  | { type: "Error"; data: string };
+
