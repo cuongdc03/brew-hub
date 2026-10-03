@@ -84,6 +84,17 @@ pnpm tauri dev
 pnpm tauri build
 ```
 
+### macOS Gatekeeper Note (Unsigned Open-Source Builds)
+
+If you download pre-built `.dmg` releases from GitHub without an Apple Developer ID signature, macOS Gatekeeper applies a `com.apple.quarantine` flag showing:
+> *"brew-hub is damaged and can't be opened. You should move it to the Trash."*
+
+To authorize the application:
+```bash
+xattr -cr /Applications/brew-hub.app
+```
+Or right-click (Control-click) `brew-hub.app` in Finder and select **Open**.
+
 ---
 
 ## 🔒 Security & Privilege Model
