@@ -2,6 +2,22 @@
 
 A modern, high-performance desktop application for managing [Homebrew](https://brew.sh) packages, applications, background services, and disk storage on macOS. Built with **Tauri v2 (Rust)** and **React 19 + TypeScript + Tailwind CSS**.
 
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="Brew Hub Dashboard" width="90%" style="border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.4);" />
+</p>
+
+---
+
+## 📸 Screenshots
+
+| Applications & Inspector | CLI Formulae Manager |
+|:---:|:---:|
+| <img src="docs/screenshots/applications.png" alt="Applications View" width="100%" /> | <img src="docs/screenshots/formulae.png" alt="Formulae View" width="100%" /> |
+
+| Background Services Controller | Storage & Cache Cleaner |
+|:---:|:---:|
+| <img src="docs/screenshots/services.png" alt="Services View" width="100%" /> | <img src="docs/screenshots/cleanup.png" alt="Cleanup View" width="100%" /> |
+
 ---
 
 ## ✨ Features
