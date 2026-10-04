@@ -1091,6 +1091,10 @@ mod tests {
     #[tokio::test]
     async fn test_update_brew_index_runnable() {
         let res = update_brew_index().await;
-        assert!(res.is_ok(), "Expected update_brew_index to succeed: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Expected update_brew_index to succeed: {:?}",
+            res.err()
+        );
     }
 }
