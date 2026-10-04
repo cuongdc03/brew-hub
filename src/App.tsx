@@ -36,6 +36,7 @@ import {
   manageService,
   uninstallPackage,
   upgradePackage,
+  checkForUpdates,
 } from "./services/api";
 
 export function App() {
@@ -55,6 +56,30 @@ export function App() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isActionRunning, setIsActionRunning] = useState(false);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [lastChecked, setLastChecked] = useState<number | null>(() => {
+    const saved = localStorage.getItem("brewhub_last_checked");
+    return saved ? parseInt(saved, 10) : null;
+  });
+
+  const handleCheckForUpdates = async () => {
+    if (isCheckingUpdates || isActionRunning) return;
+    setIsCheckingUpdates(true);
+    try {
+      const res = await checkForUpdates();
+      if (res.outdated) {
+        setOutdated(res.outdated);
+      }
+      if (res.last_checked) {
+        setLastChecked(res.last_checked);
+        localStorage.setItem("brewhub_last_checked", res.last_checked.toString());
+      }
+    } catch (err) {
+      console.error("Failed to check for updates:", err);
+    } finally {
+      setIsCheckingUpdates(false);
+    }
+  };
 
   const [terminalState, setTerminalState] = useState<{
     isOpen: boolean;
@@ -126,6 +151,25 @@ export function App() {
       if (unlisten) unlisten();
     };
   }, [outdated]);
+
+  // Listen for background or tray update check completions
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<any>("brew-updates-checked", (event) => {
+      if (event.payload?.outdated) {
+        setOutdated(event.payload.outdated);
+      }
+      if (event.payload?.last_checked) {
+        setLastChecked(event.payload.last_checked);
+        localStorage.setItem("brewhub_last_checked", event.payload.last_checked.toString());
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -546,7 +590,10 @@ export function App() {
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
           onRefresh={loadData}
+          onCheckUpdates={handleCheckForUpdates}
           isLoading={isLoading}
+          isCheckingUpdates={isCheckingUpdates}
+          lastChecked={lastChecked}
           showSearchInput={headerMeta.showSearch}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen((prev) => !prev)}
@@ -575,6 +622,8 @@ export function App() {
                 isActionRunning={isActionRunning}
                 isLoading={isLoading}
                 onSelectItem={handleSelectItem}
+                onCheckUpdates={handleCheckForUpdates}
+                isCheckingUpdates={isCheckingUpdates}
               />
             )}
 
