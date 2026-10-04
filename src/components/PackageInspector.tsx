@@ -6,6 +6,10 @@ import {
   Trash2,
   CheckCircle,
   AlertTriangle,
+  Pin,
+  PinOff,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { CaskItem, FormulaItem, OutdatedPackage } from "../types/brew";
 import { AppIcon } from "./AppIcon";
@@ -20,6 +24,9 @@ interface PackageInspectorProps {
   onClose: () => void;
   onUpgrade: (name: string, isCask: boolean) => void;
   onUninstall: (name: string, isCask: boolean) => void;
+  onTogglePin?: (name: string, isPinned: boolean) => void;
+  ignoredCasks?: string[];
+  onToggleIgnoreCask?: (token: string) => void;
   isActionRunning: boolean;
 }
 
@@ -28,29 +35,46 @@ export const PackageInspector: React.FC<PackageInspectorProps> = ({
   onClose,
   onUpgrade,
   onUninstall,
+  onTogglePin,
+  ignoredCasks = [],
+  onToggleIgnoreCask,
   isActionRunning,
 }) => {
   const [showConfirm, setShowConfirm] = useState(false);
   if (!item) return null;
 
   const isCask = item.type === "cask";
+  const caskData = isCask ? (item.data as CaskItem) : null;
+  const formulaData = !isCask ? (item.data as FormulaItem) : null;
+
   const name = isCask
-    ? (item.data as CaskItem).name?.[0] || (item.data as CaskItem).token
-    : (item.data as FormulaItem).name;
+    ? caskData?.name?.[0] || caskData?.token || ""
+    : formulaData?.name || "";
   const token = isCask
-    ? (item.data as CaskItem).token
-    : (item.data as FormulaItem).name;
+    ? caskData?.token || ""
+    : formulaData?.name || "";
   const desc = item.data.desc;
   const homepage = item.data.homepage;
-  const isOutdated = Boolean(item.outdatedInfo || item.data.outdated);
+
+  const isPinned = !isCask && Boolean((item.data as FormulaItem).pinned);
+  const isAutoUpdates = isCask && Boolean((item.data as CaskItem).auto_updates);
+  const isIgnored = isCask && ignoredCasks.includes(token);
 
   const installedVer = isCask
-    ? (item.data as CaskItem).version
-    : (item.data as FormulaItem).installed?.[0]?.version ||
-      (item.data as FormulaItem).versions?.stable ||
-      "—";
+    ? caskData?.installed || caskData?.version || "—"
+    : formulaData?.linked_keg ||
+      (formulaData?.installed && formulaData.installed.length > 0
+        ? formulaData.installed[formulaData.installed.length - 1].version
+        : formulaData?.versions?.stable || "—");
 
-  const latestVer = item.outdatedInfo?.current_version || installedVer;
+  const latestVer = isCask
+    ? item.outdatedInfo?.current_version || caskData?.version || installedVer
+    : item.outdatedInfo?.current_version || formulaData?.versions?.stable || installedVer;
+
+  const isVersionMismatch = Boolean(
+    isCask && caskData?.installed && caskData?.version && caskData.installed !== caskData.version
+  );
+  const isOutdated = Boolean(item.outdatedInfo || item.data.outdated || isVersionMismatch);
 
   const dependencies = !isCask
     ? (item.data as FormulaItem).dependencies || []
@@ -87,26 +111,93 @@ export const PackageInspector: React.FC<PackageInspectorProps> = ({
             <h3 className="font-bold text-base text-zinc-100 tracking-tight truncate leading-snug">
               {name}
             </h3>
-            <p className="font-mono text-xs text-zinc-400 truncate">{token}</p>
+            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+              <p className="font-mono text-xs text-zinc-400 truncate">{token}</p>
+              {isPinned && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium">
+                  📌 Pinned
+                </span>
+              )}
+              {isAutoUpdates && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
+                  Self-updating
+                </span>
+              )}
+              {isIgnored && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-500/20 text-zinc-400 border border-zinc-500/30 font-medium">
+                  Ignored
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Primary Action Button */}
         <div className="space-y-2">
           {isOutdated ? (
-            <button
-              onClick={() => onUpgrade(token, isCask)}
-              disabled={isActionRunning}
-              className="w-full py-2 apple-btn-primary flex items-center justify-center gap-2 text-xs font-semibold cursor-pointer shadow-md disabled:opacity-50"
-            >
-              <ArrowUpCircle className="w-4 h-4" />
-              Update to v{latestVer}
-            </button>
+            isPinned ? (
+              <div className="w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-medium flex items-center justify-center gap-2">
+                <Pin className="w-3.5 h-3.5 text-amber-400" />
+                <span>Update available (held back by pin)</span>
+              </div>
+            ) : isIgnored ? (
+              <div className="space-y-1.5">
+                <div className="w-full py-1.5 rounded-lg bg-zinc-500/10 border border-zinc-500/20 text-zinc-400 text-xs font-medium flex items-center justify-center gap-1.5">
+                  <BellOff className="w-3.5 h-3.5" />
+                  Updates ignored
+                </div>
+                <button
+                  onClick={() => onUpgrade(token, isCask)}
+                  disabled={isActionRunning}
+                  className="w-full py-1.5 apple-btn-secondary text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <ArrowUpCircle className="w-3.5 h-3.5 text-[#FF9F0A]" />
+                  Upgrade manually to v{latestVer}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onUpgrade(token, isCask)}
+                disabled={isActionRunning}
+                className="w-full py-2 apple-btn-primary flex items-center justify-center gap-2 text-xs font-semibold cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <ArrowUpCircle className="w-4 h-4" />
+                Update to v{latestVer}
+              </button>
+            )
           ) : (
             <div className="w-full py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium flex items-center justify-center gap-1.5">
               <CheckCircle className="w-3.5 h-3.5" />
               Up to date
             </div>
+          )}
+
+          {/* Formula Pin / Unpin Action */}
+          {!isCask && onTogglePin && (
+            <button
+              onClick={() => onTogglePin(token, isPinned)}
+              disabled={isActionRunning}
+              className={`w-full py-1.5 apple-btn-secondary flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50 ${
+                isPinned ? "text-amber-300 hover:text-amber-200" : "text-zinc-300 hover:text-white"
+              }`}
+            >
+              {isPinned ? <PinOff className="w-3.5 h-3.5 text-amber-400" /> : <Pin className="w-3.5 h-3.5 text-zinc-400" />}
+              {isPinned ? "Unpin Formula" : "Pin Formula (Hold Back)"}
+            </button>
+          )}
+
+          {/* Cask Ignore Updates Action */}
+          {isCask && onToggleIgnoreCask && (
+            <button
+              onClick={() => onToggleIgnoreCask(token)}
+              disabled={isActionRunning}
+              className={`w-full py-1.5 apple-btn-secondary flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer transition-colors disabled:opacity-50 ${
+                isIgnored ? "text-blue-400 hover:text-blue-300" : "text-zinc-300 hover:text-white"
+              }`}
+            >
+              {isIgnored ? <Bell className="w-3.5 h-3.5 text-blue-400" /> : <BellOff className="w-3.5 h-3.5 text-zinc-400" />}
+              {isIgnored ? "Stop Ignoring Updates" : "Ignore Updates for App"}
+            </button>
           )}
 
           {homepage && (
@@ -147,6 +238,29 @@ export const PackageInspector: React.FC<PackageInspectorProps> = ({
               <span className="text-zinc-400">Latest Version</span>
               <span className="font-mono text-zinc-200">{latestVer}</span>
             </div>
+
+            {!isCask && (
+              <div className="p-2.5 flex justify-between items-center">
+                <span className="text-zinc-400">Pinned Status</span>
+                <span className={`font-mono text-xs ${isPinned ? "text-amber-400 font-semibold" : "text-zinc-300"}`}>
+                  {isPinned ? "Pinned (held back)" : "Not pinned"}
+                </span>
+              </div>
+            )}
+
+            {isCask && isAutoUpdates && (
+              <div className="p-2.5 flex justify-between items-center">
+                <span className="text-zinc-400">Update Mechanism</span>
+                <span className="text-cyan-400 text-xs">Self-updating</span>
+              </div>
+            )}
+
+            {isCask && isIgnored && (
+              <div className="p-2.5 flex justify-between items-center">
+                <span className="text-zinc-400">Update Policy</span>
+                <span className="text-zinc-400 text-xs">Ignored</span>
+              </div>
+            )}
 
             {license && (
               <div className="p-2.5 flex justify-between items-center">
