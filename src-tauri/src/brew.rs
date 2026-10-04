@@ -35,6 +35,11 @@ pub struct CleanupPreview {
     pub total_space: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoremovePreview {
+    pub formulae: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
     pub formulae: Vec<String>,
@@ -425,18 +430,52 @@ pub async fn manage_service_action(
     })
 }
 
-pub async fn get_cleanup_dry_run() -> Result<CleanupPreview, String> {
-    let mut cmd = create_brew_command();
-    cmd.args(["cleanup", "-n"]);
+pub fn parse_size_str(size_str: &str) -> Option<u64> {
+    let s = size_str.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let unit_idx = s.find(|c: char| c.is_alphabetic())?;
+    let (num_part, unit_part) = s.split_at(unit_idx);
+    let val: f64 = num_part.trim().parse().ok()?;
+    let unit = unit_part.trim().to_uppercase();
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute brew cleanup -n: {}", e))?;
+    let multiplier: f64 = match unit.as_str() {
+        "B" | "BYTES" => 1.0,
+        "K" | "KB" | "KIB" => 1024.0,
+        "M" | "MB" | "MIB" => 1024.0 * 1024.0,
+        "G" | "GB" | "GIB" => 1024.0 * 1024.0 * 1024.0,
+        "T" | "TB" | "TIB" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        _ => return None,
+    };
+    Some((val * multiplier) as u64)
+}
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
+pub fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    const GB: u64 = 1024 * MB;
+    const TB: u64 = 1024 * GB;
+
+    if bytes >= TB {
+        format!("{:.1} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else if bytes > 0 {
+        format!("{} B", bytes)
+    } else {
+        "0 B".to_string()
+    }
+}
+
+pub fn parse_cleanup_output(stdout_str: &str) -> CleanupPreview {
     let mut items = Vec::new();
-    let mut total_space = "0 B".to_string();
+    let mut total_space = String::new();
+    let mut parsed_total_bytes: u64 = 0;
 
     for line in stdout_str.lines() {
         let trimmed = line.trim();
@@ -445,32 +484,75 @@ pub async fn get_cleanup_dry_run() -> Result<CleanupPreview, String> {
             // Format can be: path (size)
             if let Some((path_part, size_part)) = rest.rsplit_once('(') {
                 let size = size_part.trim_end_matches(')').trim().to_string();
+                if let Some(bytes) = parse_size_str(&size) {
+                    parsed_total_bytes += bytes;
+                }
                 items.push(CleanupItem {
                     path: path_part.trim().to_string(),
                     size: Some(size),
                 });
             } else {
+                let p = rest.trim().to_string();
+                let file_size = std::fs::metadata(&p).map(|m| m.len()).ok();
+                if let Some(bytes) = file_size {
+                    parsed_total_bytes += bytes;
+                }
+                let size_str = file_size.map(format_bytes);
                 items.push(CleanupItem {
-                    path: rest.to_string(),
-                    size: None,
+                    path: p,
+                    size: size_str,
                 });
             }
-        } else if trimmed.starts_with("==> This operation would free approximately") {
-            let rest = trimmed
-                .trim_start_matches("==> This operation would free approximately")
-                .trim();
-            let cleaned = rest.trim_end_matches("of disk space.").trim();
-            total_space = cleaned.to_string();
+        } else if trimmed.contains("free approximately") && trimmed.contains("of disk space") {
+            if let Some(after) = trimmed.split("free approximately").nth(1) {
+                if let Some(before) = after.split("of disk space").next() {
+                    let cleaned = before.trim().trim_end_matches('.');
+                    if !cleaned.is_empty() {
+                        total_space = cleaned.to_string();
+                    }
+                }
+            }
         }
     }
 
-    Ok(CleanupPreview { items, total_space })
+    if total_space.is_empty() || total_space == "0 B" {
+        if parsed_total_bytes > 0 {
+            total_space = format_bytes(parsed_total_bytes);
+        } else {
+            total_space = "0 B".to_string();
+        }
+    }
+
+    CleanupPreview { items, total_space }
 }
 
-pub async fn run_cleanup_execute() -> Result<CommandOutput, String> {
+pub async fn get_cleanup_dry_run(prune_all: Option<bool>) -> Result<CleanupPreview, String> {
+    let mut cmd = create_brew_command();
+    let prune = prune_all.unwrap_or(true);
+    if prune {
+        cmd.args(["cleanup", "-n", "--prune=all"]);
+    } else {
+        cmd.args(["cleanup", "-n"]);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew cleanup dry run: {}", e))?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_cleanup_output(&stdout_str))
+}
+
+pub async fn run_cleanup_execute(prune_all: Option<bool>) -> Result<CommandOutput, String> {
     let _lock = BREW_MUTATION_LOCK.lock().await;
     let mut cmd = create_brew_command();
-    cmd.args(["cleanup", "--prune=all"]);
+    let prune = prune_all.unwrap_or(true);
+    if prune {
+        cmd.args(["cleanup", "--prune=all"]);
+    } else {
+        cmd.args(["cleanup"]);
+    }
 
     let output = cmd
         .output()
@@ -482,6 +564,48 @@ pub async fn run_cleanup_execute() -> Result<CommandOutput, String> {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
+}
+
+pub fn parse_autoremove_output(stdout: &str) -> Vec<String> {
+    let mut formulae = Vec::new();
+    let mut collecting = false;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.starts_with("==>") && trimmed.to_lowercase().contains("autoremov") {
+            collecting = true;
+            continue;
+        }
+
+        if collecting {
+            if trimmed.starts_with("==>") || trimmed.starts_with("Warning:") {
+                collecting = false;
+            } else {
+                formulae.push(trimmed.to_string());
+            }
+        }
+    }
+
+    formulae
+}
+
+pub async fn get_autoremove_dry_run() -> Result<AutoremovePreview, String> {
+    let mut cmd = create_brew_command();
+    cmd.args(["autoremove", "-n"]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew autoremove -n: {}", e))?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let formulae = parse_autoremove_output(&stdout_str);
+
+    Ok(AutoremovePreview { formulae })
 }
 
 pub async fn run_autoremove_execute() -> Result<CommandOutput, String> {
@@ -1483,5 +1607,73 @@ mod tests {
         let res = manage_service_action("nginx; rm -rf /", "start", false).await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Invalid service name"));
+    }
+
+    #[test]
+    fn test_parse_size_str() {
+        assert_eq!(parse_size_str("1B"), Some(1));
+        assert_eq!(parse_size_str("1.1KB"), Some(1126));
+        assert_eq!(parse_size_str("10MB"), Some(10 * 1024 * 1024));
+        assert_eq!(parse_size_str("2GB"), Some(2 * 1024 * 1024 * 1024));
+        assert_eq!(parse_size_str("invalid"), None);
+        assert_eq!(parse_size_str(""), None);
+    }
+
+    #[test]
+    fn test_format_bytes() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+    }
+
+    #[test]
+    fn test_parse_cleanup_output_standard() {
+        let sample = "\
+Would remove: /Users/test/Library/Caches/Homebrew/external_commands_list.txt (1B)
+Would remove: /Users/test/Library/Caches/Homebrew/all_commands_list.txt (1.1KB)
+==> This operation would free approximately 1.1KB of disk space.
+";
+        let preview = parse_cleanup_output(sample);
+        assert_eq!(preview.items.len(), 2);
+        assert_eq!(
+            preview.items[0].path,
+            "/Users/test/Library/Caches/Homebrew/external_commands_list.txt"
+        );
+        assert_eq!(preview.items[0].size.as_deref(), Some("1B"));
+        assert_eq!(preview.total_space, "1.1KB");
+    }
+
+    #[test]
+    fn test_parse_cleanup_output_fallback_when_summary_missing() {
+        let sample = "\
+Would remove: /Users/test/Library/Caches/Homebrew/pkg1.tar.gz (10MB)
+Would remove: /Users/test/Library/Caches/Homebrew/pkg2.tar.gz (20MB)
+";
+        let preview = parse_cleanup_output(sample);
+        assert_eq!(preview.items.len(), 2);
+        assert_eq!(preview.total_space, "30.0 MB");
+    }
+
+    #[test]
+    fn test_parse_autoremove_output_empty() {
+        let sample = "";
+        let formulae = parse_autoremove_output(sample);
+        assert!(formulae.is_empty());
+    }
+
+    #[test]
+    fn test_parse_autoremove_output_with_formulae() {
+        let sample = "\
+==> Would autoremove 2 unneeded formulae:
+libyaml
+openssl@1.1
+";
+        let formulae = parse_autoremove_output(sample);
+        assert_eq!(
+            formulae,
+            vec!["libyaml".to_string(), "openssl@1.1".to_string()]
+        );
     }
 }

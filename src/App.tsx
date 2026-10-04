@@ -50,6 +50,7 @@ export function App() {
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
+  const [cleanupPruneAll, setCleanupPruneAll] = useState(true);
 
   const [selectedItem, setSelectedItem] = useState<InspectedItem>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
@@ -127,7 +128,7 @@ export function App() {
         .then((out) => setOutdated(out))
         .catch((err) => console.warn("Failed to fetch outdated packages:", err));
 
-      fetchCleanupPreview()
+      fetchCleanupPreview(true)
         .then((cln) => setCleanupPreview(cln))
         .catch((err) => console.warn("Failed to fetch cleanup preview:", err));
 
@@ -495,25 +496,34 @@ export function App() {
     }
   };
 
+  const handlePruneModeChange = (all: boolean) => {
+    setCleanupPruneAll(all);
+    fetchCleanupPreview(all)
+      .then((cln) => setCleanupPreview(cln))
+      .catch((err) => console.error("Failed to fetch cleanup preview:", err));
+  };
+
   const handleRunCleanup = async () => {
     if (isActionRunningRef.current) return;
 
     setTerminalState({
       isOpen: true,
-      title: "brew cleanup --prune=all",
-      output: "==> Purging Homebrew cache and obsolete downloaded archives...\n",
+      title: cleanupPruneAll ? "brew cleanup --prune=all" : "brew cleanup",
+      output: `==> Purging Homebrew cache (${cleanupPruneAll ? "all cached downloads" : "older than 120 days"})...\n`,
       isLoading: true,
     });
     setIsActionRunning(true);
 
     try {
-      const res = await executeCleanup();
+      const res = await executeCleanup(cleanupPruneAll);
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Disk cleanup complete!`,
         isLoading: false,
       }));
-      fetchCleanupPreview().then((cln) => setCleanupPreview(cln));
+      fetchCleanupPreview(cleanupPruneAll)
+        .then((cln) => setCleanupPreview(cln))
+        .catch((err) => console.error("Failed to refresh cleanup preview:", err));
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
@@ -543,6 +553,9 @@ export function App() {
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Autoremove complete!`,
         isLoading: false,
       }));
+      fetchCleanupPreview(cleanupPruneAll)
+        .then((cln) => setCleanupPreview(cln))
+        .catch((err) => console.error("Failed to refresh cleanup preview:", err));
       loadData();
     } catch (err: any) {
       setTerminalState((prev) => ({
@@ -751,6 +764,8 @@ export function App() {
             {activeTab === "cleanup" && (
               <CleanupView
                 preview={cleanupPreview}
+                pruneAll={cleanupPruneAll}
+                onPruneModeChange={handlePruneModeChange}
                 onRunCleanup={handleRunCleanup}
                 onRunAutoremove={handleRunAutoremove}
                 isActionRunning={isActionRunning}

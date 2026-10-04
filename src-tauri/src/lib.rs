@@ -2,11 +2,11 @@ mod brew;
 
 use brew::{
     adopt_cask_package, check_brew_doctor, check_brewfile, export_brewfile_to_path,
-    get_brewfile_content, get_cleanup_dry_run, get_installed_json, get_outdated_json,
-    get_services_list, get_system_info, install_brewfile, manage_service_action, package_operation,
-    run_autoremove_execute, run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew,
-    update_brew_index, BrewfileCheckResult, CleanupPreview, CommandOutput, SearchResult,
-    ServiceInfo, SystemInfo, UnmanagedApp,
+    get_autoremove_dry_run, get_brewfile_content, get_cleanup_dry_run, get_installed_json,
+    get_outdated_json, get_services_list, get_system_info, install_brewfile, manage_service_action,
+    package_operation, run_autoremove_execute, run_cleanup_execute, save_brewfile,
+    scan_unmanaged_apps, search_brew, update_brew_index, AutoremovePreview, BrewfileCheckResult,
+    CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
@@ -63,13 +63,18 @@ async fn manage_service(
 }
 
 #[tauri::command]
-async fn get_cleanup_preview() -> Result<CleanupPreview, String> {
-    get_cleanup_dry_run().await
+async fn get_cleanup_preview(prune_all: Option<bool>) -> Result<CleanupPreview, String> {
+    get_cleanup_dry_run(prune_all).await
 }
 
 #[tauri::command]
-async fn run_cleanup() -> Result<CommandOutput, String> {
-    run_cleanup_execute().await
+async fn run_cleanup(prune_all: Option<bool>) -> Result<CommandOutput, String> {
+    run_cleanup_execute(prune_all).await
+}
+
+#[tauri::command]
+async fn get_autoremove_preview() -> Result<AutoremovePreview, String> {
+    get_autoremove_dry_run().await
 }
 
 #[tauri::command]
@@ -321,6 +326,7 @@ pub fn run() {
             get_services,
             manage_service,
             get_cleanup_preview,
+            get_autoremove_preview,
             run_cleanup,
             run_autoremove,
             upgrade_package,
