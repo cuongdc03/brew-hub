@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Sidebar, TabType } from "./components/Sidebar";
 import { UnifiedToolbar } from "./components/UnifiedToolbar";
 import { DashboardView } from "./components/DashboardView";
@@ -81,6 +81,12 @@ export function App() {
     }
   };
 
+  const isActionRunningRef = useRef(isActionRunning);
+  isActionRunningRef.current = isActionRunning;
+
+  const outdatedRef = useRef(outdated);
+  outdatedRef.current = outdated;
+
   const [terminalState, setTerminalState] = useState<{
     isOpen: boolean;
     title: string;
@@ -142,15 +148,26 @@ export function App() {
   // Listen for macOS menu-bar tray actions
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
     listen("tray-upgrade-all", () => {
-      handleUpgradeAll();
+      if (isActionRunningRef.current) {
+        return;
+      }
+      handleUpgradeAll(true);
     }).then((fn) => {
-      unlisten = fn;
+      if (isMounted) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
     });
+
     return () => {
+      isMounted = false;
       if (unlisten) unlisten();
     };
-  }, [outdated]);
+  }, []);
 
   // Listen for background or tray update check completions
   useEffect(() => {
@@ -194,6 +211,8 @@ export function App() {
   };
 
   const handleUpgradePackage = async (name: string, isCask: boolean) => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: `brew upgrade ${isCask ? "--cask " : ""}${name}`,
@@ -223,27 +242,62 @@ export function App() {
     }
   };
 
-  const handleUpgradeAll = async () => {
+  const handleUpgradeAll = async (forceRefresh = false) => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: "brew upgrade",
-      output: "==> Upgrading all outdated packages & applications...\nPlease wait...\n",
+      output: "==> Checking for outdated packages & applications...\nPlease wait...\n",
       isLoading: true,
     });
     setIsActionRunning(true);
 
     try {
+      let currentOutdated = outdatedRef.current;
+      if (
+        forceRefresh ||
+        (currentOutdated.formulae.length === 0 && currentOutdated.casks.length === 0)
+      ) {
+        try {
+          currentOutdated = await fetchOutdatedPackages();
+          setOutdated(currentOutdated);
+        } catch (fetchErr) {
+          console.warn("Failed to fetch fresh outdated packages:", fetchErr);
+        }
+      }
+
       const allOutdatedNames = [
-        ...outdated.formulae.map((f) => ({ name: f.name, isCask: false })),
-        ...outdated.casks.map((c) => ({ name: c.name, isCask: true })),
+        ...currentOutdated.formulae.map((f) => ({ name: f.name, isCask: false })),
+        ...currentOutdated.casks.map((c) => ({ name: c.name, isCask: true })),
       ];
+
+      if (allOutdatedNames.length === 0) {
+        setTerminalState((prev) => ({
+          ...prev,
+          output: `${prev.output}\n==> All packages and applications are already up to date!`,
+          isLoading: false,
+        }));
+        return;
+      }
+
+      setTerminalState((prev) => ({
+        ...prev,
+        output: `${prev.output}\n==> Found ${allOutdatedNames.length} outdated package(s). Starting upgrade...\n`,
+      }));
 
       for (const item of allOutdatedNames) {
         setTerminalState((prev) => ({
           ...prev,
           output: `${prev.output}\n==> Upgrading ${item.name}...`,
         }));
-        await upgradePackage(item.name, item.isCask);
+        const res = await upgradePackage(item.name, item.isCask);
+        if (res.stdout || res.stderr) {
+          setTerminalState((prev) => ({
+            ...prev,
+            output: `${prev.output}\n${res.stdout || ""}${res.stderr || ""}`,
+          }));
+        }
       }
 
       setTerminalState((prev) => ({
@@ -264,6 +318,8 @@ export function App() {
   };
 
   const handleUninstallPackage = async (name: string, isCask: boolean) => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: `brew uninstall ${isCask ? "--cask " : ""}${name}`,
@@ -308,6 +364,8 @@ export function App() {
   };
 
   const handleInstallPackage = async (name: string, isCask: boolean) => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: `brew install ${isCask ? "--cask " : ""}${name}`,
@@ -338,6 +396,8 @@ export function App() {
   };
 
   const handleAdoptApp = async (token: string) => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: `brew install --cask --adopt ${token}`,
@@ -373,6 +433,8 @@ export function App() {
     title: string,
     runAction: () => Promise<{ success: boolean; stdout: string; stderr: string }>
   ) => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title,
@@ -403,6 +465,8 @@ export function App() {
   };
 
   const handleServiceAction = async (name: string, action: "start" | "stop" | "restart") => {
+    if (isActionRunningRef.current) return;
+
     setIsActionRunning(true);
     try {
       await manageService(name, action);
@@ -421,6 +485,8 @@ export function App() {
   };
 
   const handleRunCleanup = async () => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: "brew cleanup --prune=all",
@@ -449,6 +515,8 @@ export function App() {
   };
 
   const handleRunAutoremove = async () => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: "brew autoremove",
@@ -477,6 +545,8 @@ export function App() {
   };
 
   const handleCheckDoctor = async () => {
+    if (isActionRunningRef.current) return;
+
     setTerminalState({
       isOpen: true,
       title: "brew doctor",
@@ -719,7 +789,7 @@ export function App() {
               <div className="h-3.5 w-px bg-white/10" />
 
               <button
-                onClick={handleUpgradeAll}
+                onClick={() => handleUpgradeAll()}
                 disabled={isActionRunning}
                 className="px-3 py-1 rounded-lg apple-btn-primary text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
