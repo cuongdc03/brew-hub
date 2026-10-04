@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  AutoremovePreview,
   CleanupPreview,
   CommandOutput,
   InstalledData,
@@ -50,17 +51,22 @@ export async function fetchServices(): Promise<ServiceInfo[]> {
 
 export async function manageService(
   name: string,
-  action: "start" | "stop" | "restart"
+  action: "start" | "stop" | "restart",
+  asRoot?: boolean
 ): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("manage_service", { name, action });
+  return await invoke<CommandOutput>("manage_service", { name, action, asRoot });
 }
 
-export async function fetchCleanupPreview(): Promise<CleanupPreview> {
-  return await invoke<CleanupPreview>("get_cleanup_preview");
+export async function fetchCleanupPreview(pruneAll = true): Promise<CleanupPreview> {
+  return await invoke<CleanupPreview>("get_cleanup_preview", { pruneAll });
 }
 
-export async function executeCleanup(): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("run_cleanup");
+export async function executeCleanup(pruneAll = true): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("run_cleanup", { pruneAll });
+}
+
+export async function fetchAutoremovePreview(): Promise<AutoremovePreview> {
+  return await invoke<AutoremovePreview>("get_autoremove_preview");
 }
 
 export async function executeAutoremove(): Promise<CommandOutput> {

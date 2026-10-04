@@ -24,6 +24,7 @@ export interface FormulaItem {
   outdated: boolean;
   pinned: boolean;
   dependencies: string[];
+  linked_keg?: string | null;
 }
 
 export interface CaskItem {
@@ -77,6 +78,10 @@ export interface CleanupItem {
 export interface CleanupPreview {
   items: CleanupItem[];
   total_space: string;
+}
+
+export interface AutoremovePreview {
+  formulae: string[];
 }
 
 export interface SearchResult {
