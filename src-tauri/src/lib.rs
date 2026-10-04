@@ -3,10 +3,11 @@ mod brew;
 use brew::{
     adopt_cask_package, check_brew_doctor, check_brewfile, export_brewfile_to_path,
     get_brewfile_content, get_cleanup_dry_run, get_installed_json, get_outdated_json,
-    get_services_list, get_system_info, install_brewfile, manage_service_action,
+    get_package_info, get_services_list, get_system_info, install_brewfile, manage_service_action,
     package_operation, run_autoremove_execute, run_cleanup_execute, save_brewfile,
-    scan_unmanaged_apps, search_brew, update_brew_index, BrewfileCheckResult, CleanupPreview,
-    CommandOutput, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    scan_unmanaged_apps, search_brew, search_brew_rich, update_brew_index, BrewfileCheckResult,
+    CleanupPreview, CommandOutput, PackageDetail, RichSearchResult, SearchResult, ServiceInfo,
+    SystemInfo, UnmanagedApp,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -88,6 +89,16 @@ async fn install_package(name: String, is_cask: bool) -> Result<CommandOutput, S
 #[tauri::command]
 async fn search_packages(query: String) -> Result<SearchResult, String> {
     search_brew(&query).await
+}
+
+#[tauri::command]
+async fn search_packages_rich(query: String) -> Result<RichSearchResult, String> {
+    search_brew_rich(&query).await
+}
+
+#[tauri::command]
+async fn get_package_details(name: String, is_cask: bool) -> Result<PackageDetail, String> {
+    get_package_info(&name, is_cask).await
 }
 
 #[tauri::command]
@@ -308,6 +319,8 @@ pub fn run() {
             uninstall_package,
             install_package,
             search_packages,
+            search_packages_rich,
+            get_package_details,
             check_doctor,
             scan_unmanaged,
             adopt_cask,

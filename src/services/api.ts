@@ -10,6 +10,8 @@ import {
   UnmanagedApp,
   BrewfileCheckResult,
   CheckUpdatesResult,
+  PackageDetail,
+  RichSearchResult,
 } from "../types/brew";
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
@@ -81,6 +83,15 @@ export async function installPackage(name: string, isCask: boolean): Promise<Com
 export async function searchPackages(query: string): Promise<SearchResult> {
   return await invoke<SearchResult>("search_packages", { query });
 }
+
+export async function searchPackagesRich(query: string): Promise<RichSearchResult> {
+  return await invoke<RichSearchResult>("search_packages_rich", { query });
+}
+
+export async function getPackageDetails(name: string, isCask: boolean): Promise<PackageDetail> {
+  return await invoke<PackageDetail>("get_package_details", { name, isCask });
+}
+
 
 export async function checkDoctor(): Promise<CommandOutput> {
   return await invoke<CommandOutput>("check_doctor");

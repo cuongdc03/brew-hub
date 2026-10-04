@@ -109,3 +109,27 @@ export interface BrewfileCheckResult {
   missing_items: string[];
   raw_output: string;
 }
+
+export interface PackageDetail {
+  name: string;
+  full_name: string;
+  is_cask: boolean;
+  desc: string | null;
+  homepage: string | null;
+  version: string;
+  installed: boolean;
+  installed_version: string | null;
+  outdated: boolean;
+  deprecated: boolean;
+  disabled: boolean;
+  license: string | null;
+  dependencies: string[];
+  caveats: string | null;
+}
+
+export interface RichSearchResult {
+  query: string;
+  formulae: PackageDetail[];
+  casks: PackageDetail[];
+}
+
