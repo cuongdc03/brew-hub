@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import {
+  AutoremovePreview,
   CleanupPreview,
   CommandOutput,
   InstalledData,
@@ -9,6 +10,9 @@ import {
   SystemInfo,
   UnmanagedApp,
   BrewfileCheckResult,
+  AppSettings,
+  BrewfileData,
+  OpEvent,
   CheckUpdatesResult,
   PackageDetail,
   RichSearchResult,
@@ -26,16 +30,28 @@ export async function fetchInstalledPackages(): Promise<InstalledData> {
   };
 }
 
-export async function fetchOutdatedPackages(): Promise<OutdatedData> {
-  const data = await invoke<any>("get_outdated");
+export async function fetchOutdatedPackages(greedy = false): Promise<OutdatedData> {
+  const data = await invoke<any>("get_outdated", { greedy });
   return {
     formulae: data.formulae || [],
     casks: data.casks || [],
   };
 }
 
-export async function checkForUpdates(): Promise<CheckUpdatesResult> {
-  const data = await invoke<any>("check_for_updates");
+export async function fetchSettings(): Promise<AppSettings> {
+  return await invoke<AppSettings>("get_settings");
+}
+
+export async function updateSettings(newSettings: AppSettings): Promise<AppSettings> {
+  return await invoke<AppSettings>("update_settings", { newSettings });
+}
+
+export async function updateTrayBadge(count: number): Promise<void> {
+  return await invoke<void>("update_tray_badge", { count });
+}
+
+export async function checkForUpdates(greedy?: boolean): Promise<CheckUpdatesResult> {
+  const data = await invoke<any>("check_for_updates", { greedy });
   return {
     outdated: {
       formulae: data.outdated?.formulae || [],
@@ -51,25 +67,34 @@ export async function fetchServices(): Promise<ServiceInfo[]> {
 
 export async function manageService(
   name: string,
-  action: "start" | "stop" | "restart"
+  action: "start" | "stop" | "restart",
+  asRoot?: boolean
 ): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("manage_service", { name, action });
+  return await invoke<CommandOutput>("manage_service", { name, action, asRoot });
 }
 
-export async function fetchCleanupPreview(): Promise<CleanupPreview> {
-  return await invoke<CleanupPreview>("get_cleanup_preview");
+export async function fetchCleanupPreview(pruneAll = true): Promise<CleanupPreview> {
+  return await invoke<CleanupPreview>("get_cleanup_preview", { pruneAll });
 }
 
-export async function executeCleanup(): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("run_cleanup");
+export async function executeCleanup(pruneAll = true): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("run_cleanup", { pruneAll });
+}
+
+export async function fetchAutoremovePreview(): Promise<AutoremovePreview> {
+  return await invoke<AutoremovePreview>("get_autoremove_preview");
 }
 
 export async function executeAutoremove(): Promise<CommandOutput> {
   return await invoke<CommandOutput>("run_autoremove");
 }
 
-export async function upgradePackage(name: string, isCask: boolean): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("upgrade_package", { name, isCask });
+export async function upgradePackage(
+  name: string,
+  isCask: boolean,
+  greedy?: boolean
+): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("upgrade_package", { name, isCask, greedy });
 }
 
 export async function uninstallPackage(name: string, isCask: boolean): Promise<CommandOutput> {
@@ -78,6 +103,14 @@ export async function uninstallPackage(name: string, isCask: boolean): Promise<C
 
 export async function installPackage(name: string, isCask: boolean): Promise<CommandOutput> {
   return await invoke<CommandOutput>("install_package", { name, isCask });
+}
+
+export async function pinPackage(name: string): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("pin_package", { name });
+}
+
+export async function unpinPackage(name: string): Promise<CommandOutput> {
+  return await invoke<CommandOutput>("unpin_package", { name });
 }
 
 export async function searchPackages(query: string): Promise<SearchResult> {
@@ -105,8 +138,8 @@ export async function adoptCask(token: string): Promise<CommandOutput> {
   return await invoke<CommandOutput>("adopt_cask", { token });
 }
 
-export async function fetchBrewfile(path?: string): Promise<string> {
-  return await invoke<string>("get_brewfile", { path });
+export async function fetchBrewfile(path?: string): Promise<BrewfileData> {
+  return await invoke<BrewfileData>("get_brewfile", { path });
 }
 
 export async function saveBrewfile(content: string, path?: string): Promise<string> {
@@ -134,4 +167,22 @@ export async function installBrewfileDependencies(
 
 export async function exportBrewfile(targetPath: string): Promise<CommandOutput> {
   return await invoke<CommandOutput>("export_brewfile", { targetPath });
+}
+
+export async function streamBrewOperation(
+  opId: string,
+  args: string[],
+  onEvent: (event: OpEvent) => void
+): Promise<void> {
+  const channel = new Channel<OpEvent>();
+  channel.onmessage = onEvent;
+  await invoke("execute_streaming_brew", {
+    opId,
+    args,
+    onEvent: channel,
+  });
+}
+
+export async function cancelBrewOperation(opId: string): Promise<boolean> {
+  return await invoke<boolean>("cancel_brew_operation", { opId });
 }

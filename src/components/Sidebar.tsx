@@ -9,6 +9,7 @@ import {
   Activity,
   Cpu,
   FileCode2,
+  Sliders,
 } from "lucide-react";
 import { SystemInfo } from "../types/brew";
 import { BrewHubLogo } from "./BrewHubLogo";
@@ -32,9 +33,11 @@ interface SidebarProps {
     servicesRunning: number;
     outdated: number;
     cleanupSpace: string;
+    isBrewfileDirty?: boolean;
   };
   systemInfo: SystemInfo | null;
   onOpenDoctor: () => void;
+  onOpenPreferences?: () => void;
 }
 
 interface NavItem {
@@ -56,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   counts,
   systemInfo,
   onOpenDoctor,
+  onOpenPreferences,
 }) => {
   const sections: NavSection[] = [
     {
@@ -113,6 +117,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "brewfile" as TabType,
           label: "Brewfile & Sync",
           icon: FileCode2,
+          badge: counts.isBrewfileDirty ? "●" : undefined,
+          badgeColor: "bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold",
         },
       ],
     },
@@ -195,6 +201,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer System Status & Doctor Audit */}
       <div className="p-3 border-t border-white/6 space-y-2 bg-black/10">
+        <button
+          onClick={onOpenPreferences}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white/[0.04] hover:bg-white/[0.08] border border-white/6 text-zinc-300 hover:text-white transition-all cursor-pointer"
+        >
+          <div className="flex items-center gap-2">
+            <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Preferences</span>
+          </div>
+          <span className="text-[10px] text-zinc-500 font-mono">⌘,</span>
+        </button>
+
         <button
           onClick={onOpenDoctor}
           className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white/[0.04] hover:bg-white/[0.08] border border-white/6 text-zinc-300 hover:text-white transition-all cursor-pointer"
