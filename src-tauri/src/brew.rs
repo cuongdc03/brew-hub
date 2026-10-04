@@ -853,7 +853,7 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
             let matched_cask = artifact_map
                 .get(&app_filename_lower)
                 .or_else(|| {
-                    let token_hyphen = app_name.to_lowercase().replace(' ', "-").replace('_', "-");
+                    let token_hyphen = app_name.to_lowercase().replace([' ', '_'], "-");
                     token_map.get(&token_hyphen)
                 })
                 .or_else(|| {
@@ -885,7 +885,7 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
         }
     }
 
-    detected.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    detected.sort_by_key(|a| a.name.to_lowercase());
     Ok(detected)
 }
 
@@ -1312,6 +1312,10 @@ mod tests {
     #[tokio::test]
     async fn test_update_brew_index_runnable() {
         let res = update_brew_index().await;
-        assert!(res.is_ok(), "Expected update_brew_index to succeed: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Expected update_brew_index to succeed: {:?}",
+            res.err()
+        );
     }
 }
