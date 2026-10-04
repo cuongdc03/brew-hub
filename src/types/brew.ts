@@ -24,6 +24,7 @@ export interface FormulaItem {
   outdated: boolean;
   pinned: boolean;
   dependencies: string[];
+  linked_keg?: string | null;
 }
 
 export interface CaskItem {

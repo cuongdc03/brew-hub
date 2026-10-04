@@ -50,9 +50,10 @@ export async function fetchServices(): Promise<ServiceInfo[]> {
 
 export async function manageService(
   name: string,
-  action: "start" | "stop" | "restart"
+  action: "start" | "stop" | "restart",
+  asRoot?: boolean
 ): Promise<CommandOutput> {
-  return await invoke<CommandOutput>("manage_service", { name, action });
+  return await invoke<CommandOutput>("manage_service", { name, action, asRoot });
 }
 
 export async function fetchCleanupPreview(pruneAll = true): Promise<CleanupPreview> {
