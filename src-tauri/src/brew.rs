@@ -205,12 +205,47 @@ text returned of theResp
 '
 "#;
 
-        // Always rewrite the script to prevent tampering and ensure latest security fixes
-        let _ = std::fs::write(&script_path, script_content);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700));
+        // Atomically write to a unique temporary file then rename into place
+        // to prevent partial reads or truncate races during concurrent unit tests
+        let tmp_script_path = cache_dir.join(format!(
+            ".brew-hub-askpass.{}.{}.tmp",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+
+        if std::fs::write(&tmp_script_path, script_content).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(
+                    &tmp_script_path,
+                    std::fs::Permissions::from_mode(0o700),
+                );
+            }
+            if std::fs::rename(&tmp_script_path, &script_path).is_err() {
+                // If rename failed (e.g. across mount or filesystem race), fall back to direct write
+                let _ = std::fs::write(&script_path, script_content);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(
+                        &script_path,
+                        std::fs::Permissions::from_mode(0o700),
+                    );
+                }
+            }
+        } else {
+            // Direct write fallback
+            let _ = std::fs::write(&script_path, script_content);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ =
+                    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700));
+            }
         }
 
         if script_path.exists() {
