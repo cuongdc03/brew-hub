@@ -738,7 +738,7 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
             let matched_cask = artifact_map
                 .get(&app_filename_lower)
                 .or_else(|| {
-                    let token_hyphen = app_name.to_lowercase().replace(' ', "-").replace('_', "-");
+                    let token_hyphen = app_name.to_lowercase().replace([' ', '_'], "-");
                     token_map.get(&token_hyphen)
                 })
                 .or_else(|| {
@@ -770,7 +770,7 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
         }
     }
 
-    detected.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    detected.sort_by_key(|a| a.name.to_lowercase());
     Ok(detected)
 }
 
@@ -994,6 +994,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live Homebrew installation and network"]
     async fn test_search_brew_nonexistent_package() {
         let result = search_brew("nonexistentpackage123456789xyz").await;
         assert!(result.is_ok());
@@ -1003,6 +1004,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live Homebrew installation and network"]
     async fn test_search_brew_existing_package() {
         let result = search_brew("git").await;
         assert!(result.is_ok());
@@ -1074,6 +1076,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires live Homebrew installation and local applications"]
     async fn test_scan_unmanaged_apps_runnable() {
         let res = scan_unmanaged_apps().await;
         assert!(res.is_ok());
