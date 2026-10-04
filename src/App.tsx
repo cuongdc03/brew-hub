@@ -9,11 +9,13 @@ import { CleanupView } from "./components/CleanupView";
 import { BrewfileView } from "./components/BrewfileView";
 import { SearchView } from "./components/SearchView";
 import { TerminalModal } from "./components/TerminalModal";
+import { PreferencesModal } from "./components/PreferencesModal";
 import { PackageInspector, InspectedItem } from "./components/PackageInspector";
 import { ArrowUpCircle, Square, Zap } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useBrewOperation } from "./hooks/useBrewOperation";
 import {
+  AppSettings,
   BrewfileCheckResult,
   BrewfileData,
   CaskItem,
@@ -30,14 +32,18 @@ import {
   fetchInstalledPackages,
   fetchOutdatedPackages,
   fetchServices,
+  fetchSettings,
   fetchSystemInfo,
   fetchUnmanagedApps,
+  updateTrayBadge,
   checkForUpdates,
 } from "./services/api";
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
   const [searchTerm, setSearchTerm] = useState("");
+  const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [casks, setCasks] = useState<CaskItem[]>([]);
@@ -153,7 +159,7 @@ export function App() {
     try {
       setIsLoading(true);
 
-      const [sys, installed, svcs] = await Promise.all([
+      const [sys, installed, svcs, appSettings] = await Promise.all([
         fetchSystemInfo().catch((err) => {
           console.warn("Failed to get system info:", err);
           return null;
@@ -166,14 +172,20 @@ export function App() {
           console.warn("Failed to get services:", err);
           return [];
         }),
+        fetchSettings().catch((err) => {
+          console.warn("Failed to get settings:", err);
+          return null;
+        }),
       ]);
 
       if (sys) setSystemInfo(sys);
+      if (appSettings) setSettings(appSettings);
       setCasks(installed.casks);
       setFormulae(installed.formulae);
       setServices(svcs);
 
-      fetchOutdatedPackages(includeGreedy)
+      const isGreedy = appSettings?.include_greedy ?? settings?.include_greedy ?? includeGreedy;
+      fetchOutdatedPackages(isGreedy)
         .then((out) => setOutdated(out))
         .catch((err) => console.warn("Failed to fetch outdated packages:", err));
 
@@ -234,10 +246,11 @@ export function App() {
     }
   }, [activeTab]);
 
-  // Listen for macOS menu-bar tray actions
+  // Listen for macOS menu-bar tray actions & preferences
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let isMounted = true;
+    let unlistenUpgrade: (() => void) | undefined;
+    let unlistenPref: (() => void) | undefined;
+    let unlistenSettings: (() => void) | undefined;
 
     listen("tray-upgrade-all", () => {
       if (isActionRunningRef.current) {
@@ -245,16 +258,25 @@ export function App() {
       }
       handleUpgradeAll(true);
     }).then((fn) => {
-      if (isMounted) {
-        unlisten = fn;
-      } else {
-        fn();
-      }
+      unlistenUpgrade = fn;
+    });
+
+    listen("open-preferences", () => {
+      setIsPreferencesOpen(true);
+    }).then((fn) => {
+      unlistenPref = fn;
+    });
+
+    listen<AppSettings>("settings-changed", (event) => {
+      setSettings(event.payload);
+    }).then((fn) => {
+      unlistenSettings = fn;
     });
 
     return () => {
-      isMounted = false;
-      if (unlisten) unlisten();
+      if (unlistenUpgrade) unlistenUpgrade();
+      if (unlistenPref) unlistenPref();
+      if (unlistenSettings) unlistenSettings();
     };
   }, []);
 
@@ -277,11 +299,16 @@ export function App() {
     };
   }, []);
 
-  // Keyboard shortcut listener
+  // Keyboard shortcut listener (Cmd+, to open preferences, Escape to close modals)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (terminalState.isOpen) {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault();
+        setIsPreferencesOpen((prev) => !prev);
+      } else if (e.key === "Escape") {
+        if (isPreferencesOpen) {
+          setIsPreferencesOpen(false);
+        } else if (terminalState.isOpen) {
           setTerminalState((prev) => ({ ...prev, isOpen: false }));
         } else if (isInspectorOpen) {
           setIsInspectorOpen(false);
@@ -290,7 +317,7 @@ export function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [terminalState.isOpen, isInspectorOpen]);
+  }, [isPreferencesOpen, terminalState.isOpen, isInspectorOpen]);
 
   const handleSelectItem = (item: InspectedItem) => {
     setSelectedItem(item);
@@ -519,12 +546,19 @@ export function App() {
   };
 
   const headerMeta = getTabHeader();
+  const ignoredCasksList = settings?.ignored_casks || ignoredCasks;
   const actionableFormulaeCount = (outdated.formulae || []).filter((f) => !f.pinned).length;
   const actionableCasksCount = (outdated.casks || []).filter(
-    (c) => !ignoredCasks.includes(c.name)
+    (c) => !ignoredCasksList.some((ignored) => ignored.toLowerCase() === c.name.toLowerCase())
   ).length;
   const totalOutdatedCount = actionableFormulaeCount + actionableCasksCount;
   const runningServicesCount = services.filter((s) => s.status === "started").length;
+
+  useEffect(() => {
+    updateTrayBadge(totalOutdatedCount).catch((err) => {
+      console.warn("Failed to update tray badge:", err);
+    });
+  }, [totalOutdatedCount]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#111114] text-[#f5f5f7] antialiased select-none relative font-sans">
@@ -546,6 +580,7 @@ export function App() {
         }}
         systemInfo={systemInfo}
         onOpenDoctor={handleCheckDoctor}
+        onOpenPreferences={() => setIsPreferencesOpen(true)}
       />
 
       {/* Main Content Area with Split Inspector Support */}
@@ -763,6 +798,16 @@ export function App() {
         status={terminalState.status}
         exitCode={terminalState.exitCode}
         onCancel={cancelActiveOperation}
+      />
+
+      {/* Preferences Modal */}
+      <PreferencesModal
+        isOpen={isPreferencesOpen}
+        onClose={() => setIsPreferencesOpen(false)}
+        onSettingsSaved={(newSettings) => {
+          setSettings(newSettings);
+          loadData();
+        }}
       />
     </div>
   );

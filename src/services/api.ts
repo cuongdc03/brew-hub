@@ -10,6 +10,7 @@ import {
   SystemInfo,
   UnmanagedApp,
   BrewfileCheckResult,
+  AppSettings,
   BrewfileData,
   OpEvent,
   CheckUpdatesResult,
@@ -27,7 +28,7 @@ export async function fetchInstalledPackages(): Promise<InstalledData> {
   };
 }
 
-export async function fetchOutdatedPackages(greedy?: boolean): Promise<OutdatedData> {
+export async function fetchOutdatedPackages(greedy = false): Promise<OutdatedData> {
   const data = await invoke<any>("get_outdated", { greedy });
   return {
     formulae: data.formulae || [],
@@ -35,8 +36,20 @@ export async function fetchOutdatedPackages(greedy?: boolean): Promise<OutdatedD
   };
 }
 
-export async function checkForUpdates(): Promise<CheckUpdatesResult> {
-  const data = await invoke<any>("check_for_updates");
+export async function fetchSettings(): Promise<AppSettings> {
+  return await invoke<AppSettings>("get_settings");
+}
+
+export async function updateSettings(newSettings: AppSettings): Promise<AppSettings> {
+  return await invoke<AppSettings>("update_settings", { newSettings });
+}
+
+export async function updateTrayBadge(count: number): Promise<void> {
+  return await invoke<void>("update_tray_badge", { count });
+}
+
+export async function checkForUpdates(greedy?: boolean): Promise<CheckUpdatesResult> {
+  const data = await invoke<any>("check_for_updates", { greedy });
   return {
     outdated: {
       formulae: data.outdated?.formulae || [],

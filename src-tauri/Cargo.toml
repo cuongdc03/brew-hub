@@ -26,6 +26,7 @@ tokio = { version = "1", features = ["process", "rt", "macros", "time", "io-util
 tauri-plugin-notification = "2.5.1"
 tauri-plugin-dialog = "2.8.1"
 plist = "1.10.1"
+tauri-plugin-autostart = "2.7.0"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
