@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Sidebar, TabType } from "./components/Sidebar";
 import { UnifiedToolbar } from "./components/UnifiedToolbar";
 import { DashboardView } from "./components/DashboardView";
@@ -14,6 +14,8 @@ import { ArrowUpCircle, Square, Zap } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useBrewOperation } from "./hooks/useBrewOperation";
 import {
+  BrewfileCheckResult,
+  BrewfileData,
   CaskItem,
   CleanupPreview,
   FormulaItem,
@@ -23,6 +25,7 @@ import {
   UnmanagedApp,
 } from "./types/brew";
 import {
+  fetchBrewfile,
   fetchCleanupPreview,
   fetchInstalledPackages,
   fetchOutdatedPackages,
@@ -39,10 +42,35 @@ export function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [casks, setCasks] = useState<CaskItem[]>([]);
   const [unmanagedApps, setUnmanagedApps] = useState<UnmanagedApp[]>([]);
+  const [isScanningUnmanaged, setIsScanningUnmanaged] = useState(false);
+  const [unmanagedAppsError, setUnmanagedAppsError] = useState<string | null>(null);
   const [formulae, setFormulae] = useState<FormulaItem[]>([]);
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
+  const [cleanupPruneAll, setCleanupPruneAll] = useState(true);
+
+  const [brewfileData, setBrewfileData] = useState<BrewfileData | null>(null);
+  const [brewfileSavedContent, setBrewfileSavedContent] = useState<string>("");
+  const [brewfileCheckResult, setBrewfileCheckResult] = useState<BrewfileCheckResult | null>(null);
+  const [isBrewfileLoading, setIsBrewfileLoading] = useState<boolean>(false);
+
+  const isBrewfileDirty =
+    brewfileData !== null && brewfileData.content !== brewfileSavedContent;
+
+  const loadBrewfileData = async (path?: string) => {
+    try {
+      setIsBrewfileLoading(true);
+      const data = await fetchBrewfile(path);
+      setBrewfileData(data);
+      setBrewfileSavedContent(data.content);
+      setBrewfileCheckResult(null);
+    } catch (err) {
+      console.error("Failed to load Brewfile:", err);
+    } finally {
+      setIsBrewfileLoading(false);
+    }
+  };
 
   const [selectedItem, setSelectedItem] = useState<InspectedItem>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
@@ -83,6 +111,27 @@ export function App() {
     }
   };
 
+  const isActionRunningRef = useRef(isActionRunning);
+  isActionRunningRef.current = isActionRunning;
+
+  const outdatedRef = useRef(outdated);
+  outdatedRef.current = outdated;
+
+  const loadUnmanagedApps = async () => {
+    setIsScanningUnmanaged(true);
+    setUnmanagedAppsError(null);
+    try {
+      const apps = await fetchUnmanagedApps();
+      setUnmanagedApps(apps);
+    } catch (err: any) {
+      console.warn("Failed to scan unmanaged apps:", err);
+      const msg = typeof err === "string" ? err : err?.message || "Failed to scan applications";
+      setUnmanagedAppsError(msg);
+    } finally {
+      setIsScanningUnmanaged(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       setIsLoading(true);
@@ -111,13 +160,9 @@ export function App() {
         .then((out) => setOutdated(out))
         .catch((err) => console.warn("Failed to fetch outdated packages:", err));
 
-      fetchCleanupPreview()
+      fetchCleanupPreview(true)
         .then((cln) => setCleanupPreview(cln))
         .catch((err) => console.warn("Failed to fetch cleanup preview:", err));
-
-      fetchUnmanagedApps()
-        .then((apps) => setUnmanagedApps(apps))
-        .catch((err) => console.warn("Failed to scan unmanaged apps:", err));
     } catch (err) {
       console.error("Error loading Homebrew data:", err);
     } finally {
@@ -127,20 +172,38 @@ export function App() {
 
   useEffect(() => {
     loadData();
+    loadUnmanagedApps();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "brewfile" && !brewfileData && !isBrewfileLoading) {
+      loadBrewfileData();
+    }
+  }, [activeTab]);
 
   // Listen for macOS menu-bar tray actions
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
     listen("tray-upgrade-all", () => {
-      handleUpgradeAll();
+      if (isActionRunningRef.current) {
+        return;
+      }
+      handleUpgradeAll(true);
     }).then((fn) => {
-      unlisten = fn;
+      if (isMounted) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
     });
+
     return () => {
+      isMounted = false;
       if (unlisten) unlisten();
     };
-  }, [outdated]);
+  }, []);
 
   // Listen for background or tray update check completions
   useEffect(() => {
@@ -189,7 +252,7 @@ export function App() {
     await runOperation(title, args, { onSuccess: loadData });
   };
 
-  const handleUpgradeAll = async () => {
+  const handleUpgradeAll = async (_forceRefresh = false) => {
     await runOperation("brew upgrade", ["upgrade"], { onSuccess: loadData });
   };
 
@@ -266,8 +329,16 @@ export function App() {
     }
   };
 
-  const handleServiceAction = async (name: string, action: "start" | "stop" | "restart") => {
-    await runOperation(`brew services ${action} ${name}`, ["services", action, name], {
+  const handleServiceAction = async (
+    name: string,
+    action: "start" | "stop" | "restart",
+    asRoot = false
+  ) => {
+    const args = ["services", action, name];
+    if (asRoot) {
+      args.push("--root");
+    }
+    await runOperation(`brew services ${action} ${name}${asRoot ? " (privileged)" : ""}`, args, {
       onSuccess: async () => {
         const updated = await fetchServices();
         setServices(updated);
@@ -275,12 +346,26 @@ export function App() {
     });
   };
 
+  const handlePruneModeChange = (all: boolean) => {
+    setCleanupPruneAll(all);
+    fetchCleanupPreview(all)
+      .then((cln) => setCleanupPreview(cln))
+      .catch((err) => console.error("Failed to fetch cleanup preview:", err));
+  };
+
   const handleRunCleanup = async () => {
-    await runOperation("brew cleanup -s --prune=all", ["cleanup", "-s", "--prune=all"], {
-      onSuccess: () => {
-        fetchCleanupPreview().then((cln) => setCleanupPreview(cln)).catch(() => {});
-      },
-    });
+    const args = cleanupPruneAll ? ["cleanup", "-s", "--prune=all"] : ["cleanup", "-s"];
+    await runOperation(
+      cleanupPruneAll ? "brew cleanup -s --prune=all" : "brew cleanup -s",
+      args,
+      {
+        onSuccess: () => {
+          fetchCleanupPreview(cleanupPruneAll)
+            .then((cln) => setCleanupPreview(cln))
+            .catch(() => {});
+        },
+      }
+    );
   };
 
   const handleRunAutoremove = async () => {
@@ -365,6 +450,7 @@ export function App() {
           servicesRunning: runningServicesCount,
           outdated: totalOutdatedCount,
           cleanupSpace: cleanupPreview?.total_space || "0 B",
+          isBrewfileDirty,
         }}
         systemInfo={systemInfo}
         onOpenDoctor={handleCheckDoctor}
@@ -377,9 +463,12 @@ export function App() {
           subtitle={headerMeta.subtitle}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
-          onRefresh={loadData}
+          onRefresh={() => {
+            loadData();
+            loadUnmanagedApps();
+          }}
           onCheckUpdates={handleCheckForUpdates}
-          isLoading={isLoading}
+          isLoading={isLoading || isScanningUnmanaged}
           isCheckingUpdates={isCheckingUpdates}
           lastChecked={lastChecked}
           showSearchInput={headerMeta.showSearch}
@@ -420,6 +509,9 @@ export function App() {
                 casks={casks}
                 outdatedList={outdated.casks || []}
                 unmanagedApps={unmanagedApps}
+                unmanagedAppsError={unmanagedAppsError}
+                isScanningUnmanaged={isScanningUnmanaged}
+                onRefreshUnmanaged={loadUnmanagedApps}
                 searchTerm={searchTerm}
                 onUpgrade={(name) => handleUpgradePackage(name, true)}
                 onUninstall={(name) => handleUninstallPackage(name, true)}
@@ -458,6 +550,8 @@ export function App() {
             {activeTab === "cleanup" && (
               <CleanupView
                 preview={cleanupPreview}
+                pruneAll={cleanupPruneAll}
+                onPruneModeChange={handlePruneModeChange}
                 onRunCleanup={handleRunCleanup}
                 onRunAutoremove={handleRunAutoremove}
                 isActionRunning={isActionRunning}
@@ -469,6 +563,14 @@ export function App() {
               <BrewfileView
                 onRunCommandInTerminal={handleRunCommandInTerminal}
                 isActionRunning={isActionRunning}
+                brewfileData={brewfileData}
+                setBrewfileData={setBrewfileData}
+                savedContent={brewfileSavedContent}
+                setSavedContent={setBrewfileSavedContent}
+                checkResult={brewfileCheckResult}
+                setCheckResult={setBrewfileCheckResult}
+                onReload={loadBrewfileData}
+                isLoading={isBrewfileLoading}
               />
             )}
 
@@ -507,7 +609,7 @@ export function App() {
               <div className="h-3.5 w-px bg-white/10" />
 
               <button
-                onClick={handleUpgradeAll}
+                onClick={() => handleUpgradeAll()}
                 disabled={isActionRunning}
                 className="px-3 py-1 rounded-lg apple-btn-primary text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >

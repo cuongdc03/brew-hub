@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Sparkles,
   DownloadCloud,
+  RotateCw,
 } from "lucide-react";
 import { CaskItem, OutdatedPackage, UnmanagedApp } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
@@ -19,6 +20,9 @@ interface CasksViewProps {
   casks: CaskItem[];
   outdatedList: OutdatedPackage[];
   unmanagedApps?: UnmanagedApp[];
+  unmanagedAppsError?: string | null;
+  isScanningUnmanaged?: boolean;
+  onRefreshUnmanaged?: () => void;
   searchTerm: string;
   onUpgrade: (name: string) => void;
   onUninstall: (name: string) => void;
@@ -33,6 +37,9 @@ export const CasksView: React.FC<CasksViewProps> = ({
   casks,
   outdatedList,
   unmanagedApps = [],
+  unmanagedAppsError = null,
+  isScanningUnmanaged = false,
+  onRefreshUnmanaged,
   searchTerm,
   onUpgrade,
   onUninstall,
@@ -45,10 +52,19 @@ export const CasksView: React.FC<CasksViewProps> = ({
   const [filterMode, setFilterMode] = useState<"all" | "outdated" | "unmanaged">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [caskToUninstall, setCaskToUninstall] = useState<string | null>(null);
+  const [appToAdopt, setAppToAdopt] = useState<UnmanagedApp | null>(null);
   const outdatedMap = new Map(outdatedList.map((o) => [o.name, o]));
 
+  const isCaskOutdated = (cask: CaskItem) => {
+    return (
+      outdatedMap.has(cask.token) ||
+      cask.outdated ||
+      Boolean(cask.installed && cask.installed !== cask.version)
+    );
+  };
+
   const filteredCasks = casks.filter((cask) => {
-    const isOutdated = outdatedMap.has(cask.token) || cask.outdated;
+    const isOutdated = isCaskOutdated(cask);
     if (filterMode === "outdated" && !isOutdated) return false;
 
     const q = searchTerm.toLowerCase();
@@ -87,7 +103,7 @@ export const CasksView: React.FC<CasksViewProps> = ({
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[#FF9F0A]" />
-            Updates ({outdatedList.length})
+            Updates ({casks.filter(isCaskOutdated).length})
           </button>
           <button
             onClick={() => setFilterMode("unmanaged")}
@@ -138,7 +154,31 @@ export const CasksView: React.FC<CasksViewProps> = ({
 
       {filterMode === "unmanaged" ? (
         /* Unmanaged / Adoptable Apps View */
-        filteredUnmanaged.length === 0 ? (
+        unmanagedAppsError && filteredUnmanaged.length === 0 ? (
+          <div className="py-16 text-center text-zinc-400 border border-red-500/20 bg-red-500/5 rounded-2xl p-6">
+            <AlertTriangle className="w-10 h-10 mx-auto mb-3 text-red-400" />
+            <p className="text-sm font-semibold text-zinc-200">Failed to Scan Applications</p>
+            <p className="text-xs text-zinc-400 mt-1 max-w-md mx-auto">{unmanagedAppsError}</p>
+            {onRefreshUnmanaged && (
+              <button
+                onClick={onRefreshUnmanaged}
+                disabled={isScanningUnmanaged}
+                className="mt-4 px-4 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium border border-red-500/30 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isScanningUnmanaged ? "animate-spin" : ""}`} />
+                {isScanningUnmanaged ? "Scanning..." : "Retry Scan"}
+              </button>
+            )}
+          </div>
+        ) : isScanningUnmanaged && filteredUnmanaged.length === 0 ? (
+          <div className="py-24 text-center text-zinc-500 border border-white/5 rounded-2xl">
+            <div className="w-8 h-8 mx-auto mb-3 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-zinc-300">Scanning /Applications...</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              Matching installed desktop applications against the Homebrew cask catalog
+            </p>
+          </div>
+        ) : filteredUnmanaged.length === 0 ? (
           <div className="py-24 text-center text-zinc-500 border border-dashed border-white/8 rounded-2xl">
             <Sparkles className="w-12 h-12 mx-auto mb-3 text-[#30D158] opacity-60" />
             <p className="text-sm font-semibold text-zinc-300">No unmanaged applications detected</p>
@@ -146,6 +186,16 @@ export const CasksView: React.FC<CasksViewProps> = ({
               All detected desktop applications in /Applications are already managed by Homebrew or
               Apple native system services.
             </p>
+            {onRefreshUnmanaged && (
+              <button
+                onClick={onRefreshUnmanaged}
+                disabled={isScanningUnmanaged}
+                className="mt-4 px-3.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium border border-white/10 transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isScanningUnmanaged ? "animate-spin" : ""}`} />
+                Rescan Applications
+              </button>
+            )}
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
@@ -170,9 +220,35 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       </div>
                     </div>
 
-                    <span className="text-[10px] font-medium font-mono px-2 py-0.5 rounded-full bg-[#BF5AF2]/15 text-[#BF5AF2] border border-[#BF5AF2]/30 shrink-0">
-                      Unmanaged
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {app.match_confidence === "artifact" && (
+                        <span
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                          title="High confidence: Exact app bundle artifact match"
+                        >
+                          Exact
+                        </span>
+                      )}
+                      {app.match_confidence === "bundle_id" && (
+                        <span
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30"
+                          title="High confidence: CFBundleIdentifier match"
+                        >
+                          Bundle ID
+                        </span>
+                      )}
+                      {app.match_confidence === "token" && (
+                        <span
+                          className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-500/15 text-zinc-400 border border-zinc-500/30"
+                          title="Heuristic match: App name to cask token"
+                        >
+                          Name
+                        </span>
+                      )}
+                      <span className="text-[10px] font-medium font-mono px-2 py-0.5 rounded-full bg-[#BF5AF2]/15 text-[#BF5AF2] border border-[#BF5AF2]/30">
+                        Unmanaged
+                      </span>
+                    </div>
                   </div>
 
                   <p className="text-xs text-zinc-400 mt-3 line-clamp-2 leading-relaxed">
@@ -195,10 +271,10 @@ export const CasksView: React.FC<CasksViewProps> = ({
                   </span>
 
                   <button
-                    onClick={() => onAdopt && onAdopt(app.cask_token)}
+                    onClick={() => setAppToAdopt(app)}
                     disabled={isActionRunning}
                     className="px-3 py-1.5 rounded-lg bg-[#BF5AF2] hover:bg-[#A845DB] text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-50"
-                    title={`Adopt ${app.name} into Homebrew (brew install --cask --adopt ${app.cask_token})`}
+                    title={`Review and adopt ${app.name} into Homebrew`}
                   >
                     <DownloadCloud className="w-3.5 h-3.5" />
                     Adopt into Homebrew
@@ -214,6 +290,7 @@ export const CasksView: React.FC<CasksViewProps> = ({
                 <tr className="border-b border-white/6 bg-black/30 text-zinc-400 font-medium">
                   <th className="py-2.5 px-4 font-medium">Application</th>
                   <th className="py-2.5 px-4 font-medium">Cask Token</th>
+                  <th className="py-2.5 px-4 font-medium">Match</th>
                   <th className="py-2.5 px-4 font-medium">Local Version</th>
                   <th className="py-2.5 px-4 font-medium">Cask Version</th>
                   <th className="py-2.5 px-4 font-medium text-right">Actions</th>
@@ -229,15 +306,33 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       </div>
                     </td>
                     <td className="py-2.5 px-4 font-mono text-zinc-400">{app.cask_token}</td>
+                    <td className="py-2.5 px-4">
+                      {app.match_confidence === "artifact" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          Exact
+                        </span>
+                      )}
+                      {app.match_confidence === "bundle_id" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
+                          Bundle ID
+                        </span>
+                      )}
+                      {app.match_confidence === "token" && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-500/15 text-zinc-400 border border-zinc-500/30">
+                          Name
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-4 font-mono text-zinc-300">
                       {app.installed_version || "Detected"}
                     </td>
                     <td className="py-2.5 px-4 font-mono text-purple-300">{app.cask_version}</td>
                     <td className="py-2.5 px-4 text-right">
                       <button
-                        onClick={() => onAdopt && onAdopt(app.cask_token)}
+                        onClick={() => setAppToAdopt(app)}
                         disabled={isActionRunning}
                         className="px-3 py-1 rounded-lg bg-[#BF5AF2] hover:bg-[#A845DB] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        title={`Review and adopt ${app.name} into Homebrew`}
                       >
                         <DownloadCloud className="w-3.5 h-3.5" />
                         Adopt
@@ -265,8 +360,11 @@ export const CasksView: React.FC<CasksViewProps> = ({
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {filteredCasks.map((cask) => {
-            const isOutdated = outdatedMap.has(cask.token) || cask.outdated;
+            const isVersionMismatch = Boolean(cask.installed && cask.installed !== cask.version);
+            const isOutdated = isCaskOutdated(cask);
             const outdatedInfo = outdatedMap.get(cask.token);
+            const installedVer = cask.installed || cask.version;
+            const targetVer = outdatedInfo?.current_version || (isVersionMismatch ? cask.version : null);
             const displayName =
               cask.name && cask.name.length > 0 ? cask.name[0] : cask.token;
 
@@ -333,12 +431,12 @@ export const CasksView: React.FC<CasksViewProps> = ({
 
                   {/* Version Tag */}
                   <div className="mt-3 flex items-center gap-2 text-xs font-mono">
-                    <span className="text-zinc-500">v{cask.version}</span>
-                    {isOutdated && outdatedInfo && (
+                    <span className="text-zinc-500">v{installedVer}</span>
+                    {isOutdated && targetVer && targetVer !== installedVer && (
                       <>
                         <span className="text-zinc-600">&rarr;</span>
                         <span className="text-[#FF9F0A] font-semibold">
-                          v{outdatedInfo.current_version}
+                          v{targetVer}
                         </span>
                       </>
                     )}
@@ -406,8 +504,11 @@ export const CasksView: React.FC<CasksViewProps> = ({
             </thead>
             <tbody className="divide-y divide-white/4">
               {filteredCasks.map((cask) => {
-                const isOutdated = outdatedMap.has(cask.token) || cask.outdated;
+                const isVersionMismatch = Boolean(cask.installed && cask.installed !== cask.version);
+                const isOutdated = isCaskOutdated(cask);
                 const outdatedInfo = outdatedMap.get(cask.token);
+                const installedVer = cask.installed || cask.version;
+                const targetVer = outdatedInfo?.current_version || (isVersionMismatch ? cask.version : null);
                 const displayName =
                   cask.name && cask.name.length > 0 ? cask.name[0] : cask.token;
 
@@ -446,7 +547,12 @@ export const CasksView: React.FC<CasksViewProps> = ({
                       {cask.token}
                     </td>
                     <td className="py-2.5 px-4 font-mono text-zinc-400">
-                      v{cask.version}
+                      <span>v{installedVer}</span>
+                      {isOutdated && targetVer && targetVer !== installedVer && (
+                        <span className="text-[#FF9F0A] ml-1.5 font-semibold">
+                          &rarr; v{targetVer}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 px-4">
                       {isOutdated ? (
@@ -530,6 +636,88 @@ export const CasksView: React.FC<CasksViewProps> = ({
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Uninstall
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adopt Confirmation Modal */}
+      {appToAdopt && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#1c1c20] border border-white/10 rounded-2xl p-6 max-w-lg w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-[#BF5AF2]/15 border border-[#BF5AF2]/30 text-[#BF5AF2]">
+                <DownloadCloud className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold text-sm text-zinc-100">
+                  Adopt Application into Homebrew?
+                </h3>
+                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                  Homebrew will take over management of{" "}
+                  <span className="text-zinc-200 font-semibold">{appToAdopt.name}</span> by linking the existing app bundle to the official cask formula.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-black/30 rounded-xl p-3.5 space-y-2 border border-white/6 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-white/5">
+                <span className="text-zinc-500">Cask Token</span>
+                <span className="font-mono text-purple-300 font-medium">{appToAdopt.cask_token}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-white/5">
+                <span className="text-zinc-500">Source Tap</span>
+                <span className="font-mono text-zinc-300">homebrew/cask (official)</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-white/5">
+                <span className="text-zinc-500">Existing Bundle</span>
+                <span className="font-mono text-zinc-400 truncate max-w-[240px]" title={appToAdopt.path}>{appToAdopt.path}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-white/5">
+                <span className="text-zinc-500">Version</span>
+                <span className="font-mono text-zinc-300">
+                  {appToAdopt.installed_version || "Detected"} &rarr; <span className="text-purple-300 font-semibold">{appToAdopt.cask_version}</span>
+                </span>
+              </div>
+              {appToAdopt.cask_homepage && (
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-zinc-500">Homepage</span>
+                  <a
+                    href={appToAdopt.cask_homepage}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[#0A84FF] hover:underline flex items-center gap-1 font-mono truncate max-w-[240px]"
+                  >
+                    <span>{appToAdopt.cask_homepage}</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white/[0.03] rounded-lg p-2.5 font-mono text-[11px] text-zinc-400 flex items-center justify-between border border-white/5">
+              <span className="text-zinc-500">$</span>
+              <span className="text-zinc-200 select-all">brew install --cask --adopt {appToAdopt.cask_token}</span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setAppToAdopt(null)}
+                className="px-3.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const target = appToAdopt.cask_token;
+                  setAppToAdopt(null);
+                  if (onAdopt) onAdopt(target);
+                }}
+                className="px-3.5 py-1.5 rounded-lg bg-[#BF5AF2] hover:bg-[#A845DB] text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <DownloadCloud className="w-3.5 h-3.5" />
+                Confirm & Adopt
               </button>
             </div>
           </div>

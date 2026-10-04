@@ -24,6 +24,7 @@ export interface FormulaItem {
   outdated: boolean;
   pinned: boolean;
   dependencies: string[];
+  linked_keg?: string | null;
 }
 
 export interface CaskItem {
@@ -79,6 +80,10 @@ export interface CleanupPreview {
   total_space: string;
 }
 
+export interface AutoremovePreview {
+  formulae: string[];
+}
+
 export interface SearchResult {
   formulae: string[];
   casks: string[];
@@ -101,6 +106,7 @@ export interface UnmanagedApp {
   cask_desc: string | null;
   cask_homepage: string | null;
   auto_updates: boolean;
+  match_confidence?: "artifact" | "bundle_id" | "token" | null;
 }
 
 export interface BrewfileCheckResult {
@@ -116,3 +122,8 @@ export type OpEvent =
   | { type: "Exit"; data: number | null }
   | { type: "Error"; data: string };
 
+export interface BrewfileData {
+  path: string;
+  content: string;
+  source: "file" | "dump";
+}
