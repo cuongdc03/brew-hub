@@ -120,6 +120,7 @@ export function App() {
     title: string;
     output: string;
     isLoading: boolean;
+    status?: "running" | "success" | "error";
   }>({
     isOpen: false,
     title: "",
@@ -264,17 +265,20 @@ export function App() {
       title: `brew upgrade ${isCask ? "--cask " : ""}${name}`,
       output: `==> Running: brew upgrade ${isCask ? "--cask " : ""}${name}\nUpdating package binaries...\n`,
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await upgradePackage(name, isCask);
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Upgrade ${
-          res.success ? "completed successfully!" : "finished."
+          isOk ? "completed successfully!" : "FAILED."
         }`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       loadData();
     } catch (err: any) {
@@ -282,6 +286,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -296,6 +301,7 @@ export function App() {
       title: "brew upgrade",
       output: "==> Checking for outdated packages & applications...\nPlease wait...\n",
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
@@ -313,50 +319,89 @@ export function App() {
         }
       }
 
-      const allOutdatedNames = [
-        ...currentOutdated.formulae.map((f) => ({ name: f.name, isCask: false })),
-        ...currentOutdated.casks.map((c) => ({ name: c.name, isCask: true })),
+      const pinnedFormulae = (currentOutdated.formulae || []).filter((f) => f.pinned);
+      const upgradeableFormulae = (currentOutdated.formulae || []).filter((f) => !f.pinned);
+      const upgradeableCasks = currentOutdated.casks || [];
+
+      let upgradedCount = 0;
+      const failedItems: string[] = [];
+      const skippedItems = pinnedFormulae.map((f) => f.name);
+
+      let currentOutput = "==> Upgrading all outdated packages & applications...\n";
+
+      if (skippedItems.length > 0) {
+        currentOutput += `\n⏭ Skipped pinned packages: ${skippedItems.join(", ")}\n`;
+      }
+
+      const allItems = [
+        ...upgradeableFormulae.map((f) => ({ name: f.name, isCask: false })),
+        ...upgradeableCasks.map((c) => ({ name: c.name, isCask: true })),
       ];
 
-      if (allOutdatedNames.length === 0) {
+      if (allItems.length === 0) {
+        currentOutput += "\nNo upgradeable packages found (all packages are up to date or pinned).\n";
         setTerminalState((prev) => ({
           ...prev,
-          output: `${prev.output}\n==> All packages and applications are already up to date!`,
+          output: currentOutput,
           isLoading: false,
+          status: "success",
         }));
         return;
       }
 
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n==> Found ${allOutdatedNames.length} outdated package(s). Starting upgrade...\n`,
-      }));
-
-      for (const item of allOutdatedNames) {
+      for (const item of allItems) {
+        currentOutput += `\n==> Upgrading ${item.isCask ? "cask " : ""}${item.name}...\n`;
         setTerminalState((prev) => ({
           ...prev,
-          output: `${prev.output}\n==> Upgrading ${item.name}...`,
+          output: currentOutput,
         }));
-        const res = await upgradePackage(item.name, item.isCask);
-        if (res.stdout || res.stderr) {
-          setTerminalState((prev) => ({
-            ...prev,
-            output: `${prev.output}\n${res.stdout || ""}${res.stderr || ""}`,
-          }));
+
+        try {
+          const res = await upgradePackage(item.name, item.isCask);
+          if (res.stdout?.trim()) currentOutput += `${res.stdout.trim()}\n`;
+          if (res.stderr?.trim()) currentOutput += `${res.stderr.trim()}\n`;
+
+          if (res.success) {
+            upgradedCount++;
+            currentOutput += `✔ Successfully upgraded ${item.name}\n`;
+          } else {
+            failedItems.push(item.name);
+            currentOutput += `✖ Failed to upgrade ${item.name}\n`;
+          }
+        } catch (itemErr: any) {
+          failedItems.push(item.name);
+          currentOutput += `✖ Error upgrading ${item.name}: ${itemErr?.message || itemErr}\n`;
         }
+
+        setTerminalState((prev) => ({
+          ...prev,
+          output: currentOutput,
+        }));
       }
+
+      const summaryParts = [
+        `✔ ${upgradedCount} upgraded`,
+        ...(failedItems.length > 0 ? [`✖ ${failedItems.length} failed (${failedItems.join(", ")})`] : []),
+        ...(skippedItems.length > 0 ? [`⏭ ${skippedItems.length} pinned (${skippedItems.join(", ")})`] : []),
+      ];
+
+      const finalStatus = failedItems.length > 0 ? "error" : "success";
+      currentOutput += `\n========================================\n==> Upgrade Summary: ${summaryParts.join(" · ")}\n`;
 
       setTerminalState((prev) => ({
         ...prev,
-        output: `${prev.output}\n\n==> All packages upgraded successfully!`,
+        output: currentOutput,
         isLoading: false,
+        status: finalStatus,
       }));
+
       loadData();
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -371,17 +416,20 @@ export function App() {
       title: `brew uninstall ${isCask ? "--cask " : ""}${name}`,
       output: `==> Running: brew uninstall ${isCask ? "--cask " : ""}${name}...\nPlease wait...\n`,
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await uninstallPackage(name, isCask);
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Uninstall ${
-          res.success ? "completed successfully!" : "finished."
+          isOk ? "completed successfully!" : "FAILED."
         }`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       if (res.success) {
         setSelectedItem((prev) => {
@@ -403,6 +451,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -417,17 +466,20 @@ export function App() {
       title: `brew install ${isCask ? "--cask " : ""}${name}`,
       output: `==> Running: brew install ${isCask ? "--cask " : ""}${name}...\nDownloading and fetching dependencies...\n`,
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await installPackage(name, isCask);
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Installation ${
-          res.success ? "completed successfully!" : "finished."
+          isOk ? "completed successfully!" : "FAILED."
         }`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       loadData();
     } catch (err: any) {
@@ -435,6 +487,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -449,19 +502,22 @@ export function App() {
       title: `brew install --cask --adopt ${token}`,
       output: `==> Running: brew install --cask --adopt ${token}...\nAdopting existing local application bundle into Homebrew...\n`,
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await adoptCask(token);
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Adoption ${
-          res.success
+          isOk
             ? "completed successfully! The application is now tracked by Homebrew."
-            : "finished."
+            : "FAILED."
         }`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       loadData();
       if (res.success) {
@@ -472,6 +528,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -489,17 +546,20 @@ export function App() {
       title,
       output: `==> Running: ${title}...\nPlease wait...\n`,
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await runAction();
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Operation ${
-          res.success ? "completed successfully!" : "finished."
+          isOk ? "completed successfully!" : "FAILED."
         }`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       loadData();
     } catch (err: any) {
@@ -507,6 +567,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -538,6 +599,7 @@ export function App() {
         title: `brew services ${action} ${name}`,
         output: `Error executing service command: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       });
     } finally {
       setIsActionRunning(false);
@@ -559,15 +621,18 @@ export function App() {
       title: cleanupPruneAll ? "brew cleanup --prune=all" : "brew cleanup",
       output: `==> Purging Homebrew cache (${cleanupPruneAll ? "all cached downloads" : "older than 120 days"})...\n`,
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await executeCleanup(cleanupPruneAll);
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Disk cleanup complete!`,
+        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Disk cleanup ${isOk ? "complete!" : "FAILED."}`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       fetchCleanupPreview(cleanupPruneAll)
         .then((cln) => setCleanupPreview(cln))
@@ -577,6 +642,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError during cleanup: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -591,15 +657,18 @@ export function App() {
       title: "brew autoremove",
       output: "==> Removing unneeded orphaned formulas that were installed as dependencies...\n",
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await executeAutoremove();
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Autoremove complete!`,
+        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Autoremove ${isOk ? "complete!" : "FAILED."}`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
       fetchCleanupPreview(cleanupPruneAll)
         .then((cln) => setCleanupPreview(cln))
@@ -610,6 +679,7 @@ export function App() {
         ...prev,
         output: `${prev.output}\nError during autoremove: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -624,21 +694,25 @@ export function App() {
       title: "brew doctor",
       output: "==> Running Homebrew Doctor to diagnose system issues...\nPlease wait...\n",
       isLoading: true,
+      status: "running",
     });
     setIsActionRunning(true);
 
     try {
       const res = await checkDoctor();
+      const isOk = res.success;
       setTerminalState((prev) => ({
         ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Diagnostic complete!`,
+        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Diagnostic complete (${isOk ? "healthy" : "issues detected"})!`,
         isLoading: false,
+        status: isOk ? "success" : "error",
       }));
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
+        output: `${prev.output}\nError running brew doctor: ${err?.message || err}`,
         isLoading: false,
+        status: "error",
       }));
     } finally {
       setIsActionRunning(false);
@@ -897,6 +971,7 @@ export function App() {
         title={terminalState.title}
         output={terminalState.output}
         isLoading={terminalState.isLoading}
+        status={terminalState.status}
       />
     </div>
   );
