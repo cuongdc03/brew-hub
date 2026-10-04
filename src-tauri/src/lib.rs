@@ -4,11 +4,12 @@ mod settings;
 use brew::{
     adopt_cask_package, cancel_operation, check_brew_doctor, check_brewfile,
     export_brewfile_to_path, get_autoremove_dry_run, get_brewfile_content, get_cleanup_dry_run,
-    get_installed_json, get_outdated_json, get_services_list, get_system_info, install_brewfile,
-    manage_service_action, package_operation, pin_formula, run_autoremove_execute,
-    run_brew_streaming, run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew,
-    unpin_formula, update_brew_index, AutoremovePreview, BrewfileCheckResult, BrewfileData,
-    CleanupPreview, CommandOutput, OpEvent, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    get_installed_json, get_outdated_json, get_package_info, get_services_list, get_system_info,
+    install_brewfile, manage_service_action, package_operation, pin_formula,
+    run_autoremove_execute, run_brew_streaming, run_cleanup_execute, save_brewfile,
+    scan_unmanaged_apps, search_brew, search_brew_rich, unpin_formula, update_brew_index,
+    AutoremovePreview, BrewfileCheckResult, BrewfileData, CleanupPreview, CommandOutput, OpEvent,
+    PackageDetail, RichSearchResult, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use settings::AppSettings;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -175,6 +176,16 @@ async fn unpin_package(name: String) -> Result<CommandOutput, String> {
 #[tauri::command]
 async fn search_packages(query: String) -> Result<SearchResult, String> {
     search_brew(&query).await
+}
+
+#[tauri::command]
+async fn search_packages_rich(query: String) -> Result<RichSearchResult, String> {
+    search_brew_rich(&query).await
+}
+
+#[tauri::command]
+async fn get_package_details(name: String, is_cask: bool) -> Result<PackageDetail, String> {
+    get_package_info(&name, is_cask).await
 }
 
 #[tauri::command]
@@ -537,6 +548,8 @@ pub fn run() {
             pin_package,
             unpin_package,
             search_packages,
+            search_packages_rich,
+            get_package_details,
             check_doctor,
             scan_unmanaged,
             adopt_cask,

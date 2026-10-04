@@ -100,6 +100,31 @@ pub struct BrewfileCheckResult {
     pub raw_output: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PackageDetail {
+    pub name: String,
+    pub full_name: String,
+    pub is_cask: bool,
+    pub desc: Option<String>,
+    pub homepage: Option<String>,
+    pub version: String,
+    pub installed: bool,
+    pub installed_version: Option<String>,
+    pub outdated: bool,
+    pub deprecated: bool,
+    pub disabled: bool,
+    pub license: Option<String>,
+    pub dependencies: Vec<String>,
+    pub caveats: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RichSearchResult {
+    pub query: String,
+    pub formulae: Vec<PackageDetail>,
+    pub casks: Vec<PackageDetail>,
+}
+
 pub fn get_brew_bin() -> PathBuf {
     let candidates = [
         "/opt/homebrew/bin/brew",
@@ -910,6 +935,366 @@ pub async fn search_brew(query: &str) -> Result<SearchResult, String> {
     };
 
     Ok(SearchResult { formulae, casks })
+}
+
+pub fn parse_formula_detail(val: &serde_json::Value) -> Option<PackageDetail> {
+    let name = val.get("name")?.as_str()?.to_string();
+    let full_name = val
+        .get("full_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&name)
+        .to_string();
+    let desc = val
+        .get("desc")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let homepage = val
+        .get("homepage")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let version = val
+        .get("versions")
+        .and_then(|v| v.get("stable"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("latest")
+        .to_string();
+    let installed_arr = val.get("installed").and_then(|v| v.as_array());
+    let is_installed = installed_arr.map(|a| !a.is_empty()).unwrap_or(false);
+    let installed_version = installed_arr.and_then(|a| a.first()).and_then(|item| {
+        item.get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
+    let outdated = val
+        .get("outdated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let deprecated = val
+        .get("deprecated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let disabled = val
+        .get("disabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let license = val
+        .get("license")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let dependencies = val
+        .get("dependencies")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let caveats = val
+        .get("caveats")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Some(PackageDetail {
+        name,
+        full_name,
+        is_cask: false,
+        desc,
+        homepage,
+        version,
+        installed: is_installed,
+        installed_version,
+        outdated,
+        deprecated,
+        disabled,
+        license,
+        dependencies,
+        caveats,
+    })
+}
+
+pub fn parse_cask_detail(val: &serde_json::Value) -> Option<PackageDetail> {
+    let token = val.get("token")?.as_str()?.to_string();
+    let full_token = val
+        .get("full_token")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&token)
+        .to_string();
+    let desc = val
+        .get("desc")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let homepage = val
+        .get("homepage")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let version = val
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("latest")
+        .to_string();
+    let installed_val = val.get("installed").and_then(|v| v.as_str());
+    let is_installed = installed_val.is_some();
+    let installed_version = installed_val.map(|s| s.to_string());
+    let outdated = val
+        .get("outdated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let deprecated = val
+        .get("deprecated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let disabled = val
+        .get("disabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let caveats = val
+        .get("caveats")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Some(PackageDetail {
+        name: token,
+        full_name: full_token,
+        is_cask: true,
+        desc,
+        homepage,
+        version,
+        installed: is_installed,
+        installed_version,
+        outdated,
+        deprecated,
+        disabled,
+        license: None,
+        dependencies: Vec::new(),
+        caveats,
+    })
+}
+
+pub fn score_package(pkg: &PackageDetail, query_lower: &str) -> i32 {
+    let name_lower = pkg.name.to_lowercase();
+    if name_lower == query_lower {
+        1000
+    } else if name_lower.starts_with(query_lower) {
+        500
+    } else if name_lower.contains(query_lower) {
+        250
+    } else if let Some(ref desc) = pkg.desc {
+        if desc.to_lowercase().contains(query_lower) {
+            100
+        } else {
+            10
+        }
+    } else {
+        0
+    }
+}
+
+pub fn rank_package_details(details: &mut [PackageDetail], query: &str) {
+    let q = query.trim().to_lowercase();
+    details.sort_by(|a, b| {
+        let score_a = score_package(a, &q);
+        let score_b = score_package(b, &q);
+        score_b.cmp(&score_a).then_with(|| a.name.cmp(&b.name))
+    });
+}
+
+pub fn rank_token_names(names: &mut [String], query: &str) {
+    let q = query.trim().to_lowercase();
+    names.sort_by(|a, b| {
+        let score_a = if a.to_lowercase() == q {
+            1000
+        } else if a.to_lowercase().starts_with(&q) {
+            500
+        } else if a.to_lowercase().contains(&q) {
+            250
+        } else {
+            0
+        };
+        let score_b = if b.to_lowercase() == q {
+            1000
+        } else if b.to_lowercase().starts_with(&q) {
+            500
+        } else if b.to_lowercase().contains(&q) {
+            250
+        } else {
+            0
+        };
+        score_b.cmp(&score_a).then_with(|| a.cmp(b))
+    });
+}
+
+pub async fn get_package_info(name: &str, is_cask: bool) -> Result<PackageDetail, String> {
+    let mut cmd = create_brew_command();
+    if is_cask {
+        cmd.args(["info", "--json=v2", "--cask", "--", name]);
+    } else {
+        cmd.args(["info", "--json=v2", "--formula", "--", name]);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run brew info: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse brew info JSON: {}", e))?;
+
+    if is_cask {
+        let casks = parsed.get("casks").and_then(|v| v.as_array());
+        if let Some(cask) = casks.and_then(|c| c.first()) {
+            if let Some(detail) = parse_cask_detail(cask) {
+                return Ok(detail);
+            }
+        }
+    } else {
+        let formulae = parsed.get("formulae").and_then(|v| v.as_array());
+        if let Some(formula) = formulae.and_then(|f| f.first()) {
+            if let Some(detail) = parse_formula_detail(formula) {
+                return Ok(detail);
+            }
+        }
+    }
+
+    Err(format!("Package '{}' not found", name))
+}
+
+pub async fn search_brew_rich(query: &str) -> Result<RichSearchResult, String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(RichSearchResult {
+            query: "".to_string(),
+            formulae: Vec::new(),
+            casks: Vec::new(),
+        });
+    }
+
+    // 1. Search casks and formulae raw names concurrently
+    let mut cask_cmd = create_brew_command();
+    cask_cmd.args(["search", "--cask", "--", trimmed]);
+
+    let mut formula_cmd = create_brew_command();
+    formula_cmd.args(["search", "--formula", "--", trimmed]);
+
+    let (cask_res, formula_res) = tokio::join!(cask_cmd.output(), formula_cmd.output());
+
+    let mut raw_casks = match cask_res {
+        Ok(out) => parse_search_output(&String::from_utf8_lossy(&out.stdout)),
+        Err(_) => Vec::new(),
+    };
+    let mut raw_formulae = match formula_res {
+        Ok(out) => parse_search_output(&String::from_utf8_lossy(&out.stdout)),
+        Err(_) => Vec::new(),
+    };
+
+    // 2. Rank raw tokens before querying info
+    rank_token_names(&mut raw_casks, trimmed);
+    rank_token_names(&mut raw_formulae, trimmed);
+
+    // Limit to top 15 each for rich metadata
+    let top_casks: Vec<String> = raw_casks.into_iter().take(15).collect();
+    let top_formulae: Vec<String> = raw_formulae.into_iter().take(15).collect();
+
+    // 3. Batch query brew info --json=v2 concurrently
+    let cask_info_fut = async {
+        if top_casks.is_empty() {
+            return Vec::new();
+        }
+        let mut cmd = create_brew_command();
+        cmd.args(["info", "--json=v2", "--cask", "--"]);
+        cmd.args(&top_casks);
+        if let Ok(output) = cmd.output().await {
+            if output.status.success() {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(arr) = val.get("casks").and_then(|v| v.as_array()) {
+                        let parsed_details: Vec<PackageDetail> =
+                            arr.iter().filter_map(parse_cask_detail).collect();
+                        if !parsed_details.is_empty() {
+                            return parsed_details;
+                        }
+                    }
+                }
+            }
+        }
+        // Fallback
+        top_casks
+            .into_iter()
+            .map(|name| PackageDetail {
+                name: name.clone(),
+                full_name: name,
+                is_cask: true,
+                desc: None,
+                homepage: None,
+                version: "latest".to_string(),
+                installed: false,
+                installed_version: None,
+                outdated: false,
+                deprecated: false,
+                disabled: false,
+                license: None,
+                dependencies: Vec::new(),
+                caveats: None,
+            })
+            .collect()
+    };
+
+    let formula_info_fut = async {
+        if top_formulae.is_empty() {
+            return Vec::new();
+        }
+        let mut cmd = create_brew_command();
+        cmd.args(["info", "--json=v2", "--formula", "--"]);
+        cmd.args(&top_formulae);
+        if let Ok(output) = cmd.output().await {
+            if output.status.success() {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(arr) = val.get("formulae").and_then(|v| v.as_array()) {
+                        let parsed_details: Vec<PackageDetail> =
+                            arr.iter().filter_map(parse_formula_detail).collect();
+                        if !parsed_details.is_empty() {
+                            return parsed_details;
+                        }
+                    }
+                }
+            }
+        }
+        // Fallback
+        top_formulae
+            .into_iter()
+            .map(|name| PackageDetail {
+                name: name.clone(),
+                full_name: name,
+                is_cask: false,
+                desc: None,
+                homepage: None,
+                version: "latest".to_string(),
+                installed: false,
+                installed_version: None,
+                outdated: false,
+                deprecated: false,
+                disabled: false,
+                license: None,
+                dependencies: Vec::new(),
+                caveats: None,
+            })
+            .collect()
+    };
+
+    let (mut casks, mut formulae) = tokio::join!(cask_info_fut, formula_info_fut);
+
+    // 4. Rank details by relevance
+    rank_package_details(&mut casks, trimmed);
+    rank_package_details(&mut formulae, trimmed);
+
+    Ok(RichSearchResult {
+        query: trimmed.to_string(),
+        formulae,
+        casks,
+    })
 }
 
 pub async fn check_brew_doctor() -> Result<CommandOutput, String> {
@@ -2209,5 +2594,82 @@ openssl@1.1
         let val_standard = res_standard.unwrap();
         assert!(val_standard.get("formulae").is_some());
         assert!(val_standard.get("casks").is_some());
+    }
+
+    #[test]
+    fn test_rank_token_names() {
+        let mut tokens = vec![
+            "git-lfs".to_string(),
+            "digitalocean-cli".to_string(),
+            "git".to_string(),
+            "gitsome".to_string(),
+        ];
+        rank_token_names(&mut tokens, "git");
+        // "git" should be first (exact match)
+        assert_eq!(tokens[0], "git");
+        // "git-lfs" and "gitsome" (prefix matches) before "digitalocean-cli" (substring)
+        assert!(tokens[1].starts_with("git"));
+        assert!(tokens[2].starts_with("git"));
+        assert_eq!(tokens[3], "digitalocean-cli");
+    }
+
+    #[test]
+    fn test_parse_and_rank_package_details() {
+        let formula_json = serde_json::json!({
+            "name": "neovim",
+            "full_name": "neovim",
+            "desc": "Vim-fork focused on extensibility and agility",
+            "homepage": "https://neovim.io/",
+            "versions": {
+                "stable": "0.10.4"
+            },
+            "installed": [
+                {
+                    "version": "0.10.3",
+                    "installed_as_dependency": false,
+                    "installed_on_request": true
+                }
+            ],
+            "outdated": true,
+            "deprecated": false,
+            "disabled": false,
+            "license": "Apache-2.0",
+            "dependencies": ["libuv", "luajit"],
+            "caveats": null
+        });
+
+        let detail = parse_formula_detail(&formula_json).expect("should parse formula detail");
+        assert_eq!(detail.name, "neovim");
+        assert_eq!(detail.version, "0.10.4");
+        assert!(detail.installed);
+        assert_eq!(detail.installed_version, Some("0.10.3".to_string()));
+        assert!(detail.outdated);
+        assert_eq!(detail.dependencies, vec!["libuv", "luajit"]);
+
+        let cask_json = serde_json::json!({
+            "token": "raycast",
+            "full_token": "raycast",
+            "desc": "Control your tools with a few keystrokes",
+            "homepage": "https://raycast.com/",
+            "version": "2.6.2.0",
+            "installed": null,
+            "outdated": false,
+            "deprecated": false,
+            "disabled": false,
+            "caveats": "Requires macOS 12 or later"
+        });
+
+        let cask_detail = parse_cask_detail(&cask_json).expect("should parse cask detail");
+        assert_eq!(cask_detail.name, "raycast");
+        assert_eq!(cask_detail.version, "2.6.2.0");
+        assert!(!cask_detail.installed);
+        assert_eq!(
+            cask_detail.caveats,
+            Some("Requires macOS 12 or later".to_string())
+        );
+
+        let mut list = vec![cask_detail, detail];
+        rank_package_details(&mut list, "neovim");
+        assert_eq!(list[0].name, "neovim");
     }
 }
