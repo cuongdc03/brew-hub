@@ -56,6 +56,11 @@ export interface OutdatedData {
   casks: OutdatedPackage[];
 }
 
+export interface CheckUpdatesResult {
+  outdated: OutdatedData;
+  last_checked: number;
+}
+
 export interface ServiceInfo {
   name: string;
   status: string; // "started" | "stopped" | "none" | "error"

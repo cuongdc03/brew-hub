@@ -6,8 +6,8 @@ use brew::{
     get_brewfile_content, get_cleanup_dry_run, get_installed_json, get_outdated_json_with_greedy,
     get_services_list, get_system_info, install_brewfile, manage_service_action, package_operation,
     run_autoremove_execute, run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew,
-    BrewfileCheckResult, CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo,
-    UnmanagedApp,
+    update_brew_index, BrewfileCheckResult, CleanupPreview, CommandOutput, SearchResult,
+    ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use settings::AppSettings;
 use tauri::{
@@ -31,6 +31,23 @@ async fn get_installed() -> Result<serde_json::Value, String> {
 async fn get_outdated(greedy: Option<bool>) -> Result<serde_json::Value, String> {
     let is_greedy = greedy.unwrap_or(false);
     get_outdated_json_with_greedy(is_greedy).await
+}
+
+#[tauri::command]
+async fn check_for_updates(greedy: Option<bool>) -> Result<serde_json::Value, String> {
+    let _ = update_brew_index().await;
+    let current_settings = settings::load_settings();
+    let is_greedy = greedy.unwrap_or(current_settings.include_greedy);
+    let outdated = get_outdated_json_with_greedy(is_greedy).await?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "outdated": outdated,
+        "last_checked": timestamp,
+    }))
 }
 
 #[tauri::command]
@@ -267,12 +284,25 @@ pub fn run() {
                             "check" => {
                                 let app_handle = app.clone();
                                 tauri::async_runtime::spawn(async move {
+                                    let _ = brew::update_brew_index().await;
                                     let current_settings = settings::load_settings();
                                     if let Ok(outdated_val) = brew::get_outdated_json_with_greedy(
                                         current_settings.include_greedy,
                                     )
                                     .await
                                     {
+                                        let timestamp = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map(|d| d.as_secs())
+                                            .unwrap_or(0);
+                                        let _ = app_handle.emit(
+                                            "brew-updates-checked",
+                                            serde_json::json!({
+                                                "outdated": &outdated_val,
+                                                "last_checked": timestamp,
+                                            }),
+                                        );
+
                                         let (current_keys, _) = settings::parse_outdated_keys(
                                             &outdated_val,
                                             &current_settings.ignored_casks,
@@ -288,7 +318,6 @@ pub fn run() {
                                             };
                                             let _ = tray.set_title(title.as_deref());
                                         }
-
                                         let msg = if total > 0 {
                                             format!("{} updates ready to install", total)
                                         } else {
@@ -341,10 +370,23 @@ pub fn run() {
                     loop {
                         let current_settings = settings::load_settings();
                         if let Some(sleep_sec) = current_settings.interval_seconds() {
+                            let _ = brew::update_brew_index().await;
                             if let Ok(outdated_val) =
                                 brew::get_outdated_json_with_greedy(current_settings.include_greedy)
                                     .await
                             {
+                                let timestamp = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0);
+                                let _ = bg_handle.emit(
+                                    "brew-updates-checked",
+                                    serde_json::json!({
+                                        "outdated": &outdated_val,
+                                        "last_checked": timestamp,
+                                    }),
+                                );
+
                                 let (current_keys, _) = settings::parse_outdated_keys(
                                     &outdated_val,
                                     &current_settings.ignored_casks,
@@ -435,6 +477,7 @@ pub fn run() {
             get_system,
             get_installed,
             get_outdated,
+            check_for_updates,
             get_settings,
             update_settings,
             update_tray_badge,
