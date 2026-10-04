@@ -31,7 +31,7 @@ if [ -z "$LATEST_TAG" ]; then
 fi
 
 if [ -z "$LATEST_TAG" ]; then
-    LATEST_TAG="v0.1.2"
+    LATEST_TAG="v0.2.0"
 fi
 
 VERSION="${LATEST_TAG#v}"
