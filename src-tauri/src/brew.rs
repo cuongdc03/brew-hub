@@ -351,26 +351,72 @@ pub async fn get_services_list() -> Result<Vec<ServiceInfo>, String> {
         .map_err(|e| format!("Failed to parse services JSON: {}", e))
 }
 
-pub async fn manage_service_action(name: &str, action: &str) -> Result<CommandOutput, String> {
+pub fn is_valid_service_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.len() > 128 || trimmed.starts_with('-') {
+        return false;
+    }
+    trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '@')
+}
+
+pub async fn manage_service_action(
+    name: &str,
+    action: &str,
+    as_root: bool,
+) -> Result<CommandOutput, String> {
     let trimmed_action = action.trim();
-    if !matches!(trimmed_action, "start" | "stop" | "restart") {
+    if !["start", "stop", "restart", "run", "kill"].contains(&trimmed_action) {
         return Err(format!(
-            "Invalid service action: '{}'. Allowed actions: start, stop, restart",
+            "Invalid service action '{}': must be one of start, stop, restart, run, kill",
             action
         ));
     }
+
     let trimmed_name = name.trim();
-    if !is_valid_package_name(trimmed_name) {
-        return Err(format!("Invalid service name: '{}'", name));
+    if !is_valid_service_name(trimmed_name) {
+        return Err(format!(
+            "Invalid service name '{}': must be alphanumeric with safe punctuation (-_.@)",
+            name
+        ));
     }
 
-    let mut cmd = create_brew_command();
-    cmd.args(["services", trimmed_action, "--", trimmed_name]);
-
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute service action {}: {}", action, e))?;
+    let output = if as_root {
+        #[cfg(target_os = "macos")]
+        {
+            let mut cmd = Command::new("/usr/bin/sudo");
+            cmd.arg("-A");
+            cmd.arg(get_brew_bin());
+            cmd.args(["services", trimmed_action, "--", trimmed_name]);
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            let new_path = format!(
+                "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:{}",
+                current_path
+            );
+            cmd.env("PATH", new_path);
+            if let Some(askpass_path) = get_or_create_askpass_script() {
+                cmd.env("SUDO_ASKPASS", askpass_path);
+            }
+            cmd.output()
+                .await
+                .map_err(|e| format!("Failed to execute sudo brew services {}: {}", action, e))?
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let mut cmd = create_brew_command();
+            cmd.args(["services", trimmed_action, "--", trimmed_name]);
+            cmd.output()
+                .await
+                .map_err(|e| format!("Failed to execute service action {}: {}", action, e))?
+        }
+    } else {
+        let mut cmd = create_brew_command();
+        cmd.args(["services", trimmed_action, "--", trimmed_name]);
+        cmd.output()
+            .await
+            .map_err(|e| format!("Failed to execute service action {}: {}", action, e))?
+    };
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -1274,11 +1320,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_manage_service_action_security() {
-        let res = manage_service_action("--all", "start").await;
+        let res = manage_service_action("--all", "start", false).await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Invalid service name"));
 
-        let res2 = manage_service_action("redis", "restart; rm -rf /").await;
+        let res2 = manage_service_action("redis", "restart; rm -rf /", false).await;
         assert!(res2.is_err());
         assert!(res2.unwrap_err().contains("Invalid service action"));
     }
@@ -1412,5 +1458,30 @@ mod tests {
             "Expected update_brew_index to succeed: {:?}",
             res.err()
         );
+    }
+
+    #[test]
+    fn test_is_valid_service_name() {
+        assert!(is_valid_service_name("nginx"));
+        assert!(is_valid_service_name("postgresql@16"));
+        assert!(is_valid_service_name("redis-server"));
+        assert!(is_valid_service_name("homebrew.mxcl.nginx"));
+        assert!(!is_valid_service_name("nginx; rm -rf /"));
+        assert!(!is_valid_service_name(""));
+        assert!(!is_valid_service_name("has space"));
+    }
+
+    #[tokio::test]
+    async fn test_manage_service_action_rejects_invalid_action() {
+        let res = manage_service_action("nginx", "destroy", false).await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid service action"));
+    }
+
+    #[tokio::test]
+    async fn test_manage_service_action_rejects_malicious_name() {
+        let res = manage_service_action("nginx; rm -rf /", "start", false).await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid service name"));
     }
 }

@@ -54,8 +54,12 @@ async fn get_services() -> Result<Vec<ServiceInfo>, String> {
 }
 
 #[tauri::command]
-async fn manage_service(name: String, action: String) -> Result<CommandOutput, String> {
-    manage_service_action(&name, &action).await
+async fn manage_service(
+    name: String,
+    action: String,
+    as_root: Option<bool>,
+) -> Result<CommandOutput, String> {
+    manage_service_action(&name, &action, as_root.unwrap_or(false)).await
 }
 
 #[tauri::command]
