@@ -106,6 +106,7 @@ export interface UnmanagedApp {
   cask_desc: string | null;
   cask_homepage: string | null;
   auto_updates: boolean;
+  match_confidence?: "artifact" | "bundle_id" | "token" | null;
 }
 
 export interface BrewfileCheckResult {

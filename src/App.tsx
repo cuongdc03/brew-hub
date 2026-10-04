@@ -49,6 +49,8 @@ export function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [casks, setCasks] = useState<CaskItem[]>([]);
   const [unmanagedApps, setUnmanagedApps] = useState<UnmanagedApp[]>([]);
+  const [isScanningUnmanaged, setIsScanningUnmanaged] = useState(false);
+  const [unmanagedAppsError, setUnmanagedAppsError] = useState<string | null>(null);
   const [formulae, setFormulae] = useState<FormulaItem[]>([]);
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
@@ -125,6 +127,21 @@ export function App() {
     isLoading: false,
   });
 
+  const loadUnmanagedApps = async () => {
+    setIsScanningUnmanaged(true);
+    setUnmanagedAppsError(null);
+    try {
+      const apps = await fetchUnmanagedApps();
+      setUnmanagedApps(apps);
+    } catch (err: any) {
+      console.warn("Failed to scan unmanaged apps:", err);
+      const msg = typeof err === "string" ? err : err?.message || "Failed to scan applications";
+      setUnmanagedAppsError(msg);
+    } finally {
+      setIsScanningUnmanaged(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       setIsLoading(true);
@@ -156,10 +173,6 @@ export function App() {
       fetchCleanupPreview(true)
         .then((cln) => setCleanupPreview(cln))
         .catch((err) => console.warn("Failed to fetch cleanup preview:", err));
-
-      fetchUnmanagedApps()
-        .then((apps) => setUnmanagedApps(apps))
-        .catch((err) => console.warn("Failed to scan unmanaged apps:", err));
     } catch (err) {
       console.error("Error loading Homebrew data:", err);
     } finally {
@@ -169,6 +182,7 @@ export function App() {
 
   useEffect(() => {
     loadData();
+    loadUnmanagedApps();
   }, []);
 
   useEffect(() => {
@@ -450,6 +464,9 @@ export function App() {
         isLoading: false,
       }));
       loadData();
+      if (res.success) {
+        loadUnmanagedApps();
+      }
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
@@ -715,9 +732,12 @@ export function App() {
           subtitle={headerMeta.subtitle}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
-          onRefresh={loadData}
+          onRefresh={() => {
+            loadData();
+            loadUnmanagedApps();
+          }}
           onCheckUpdates={handleCheckForUpdates}
-          isLoading={isLoading}
+          isLoading={isLoading || isScanningUnmanaged}
           isCheckingUpdates={isCheckingUpdates}
           lastChecked={lastChecked}
           showSearchInput={headerMeta.showSearch}
@@ -758,6 +778,9 @@ export function App() {
                 casks={casks}
                 outdatedList={outdated.casks || []}
                 unmanagedApps={unmanagedApps}
+                unmanagedAppsError={unmanagedAppsError}
+                isScanningUnmanaged={isScanningUnmanaged}
+                onRefreshUnmanaged={loadUnmanagedApps}
                 searchTerm={searchTerm}
                 onUpgrade={(name) => handleUpgradePackage(name, true)}
                 onUninstall={(name) => handleUninstallPackage(name, true)}
