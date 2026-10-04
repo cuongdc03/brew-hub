@@ -72,6 +72,23 @@ export function App() {
     }
   };
 
+  const [includeGreedy, setIncludeGreedy] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("brew_hub_greedy_casks") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const [ignoredCasks, setIgnoredCasks] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("brew_hub_ignored_casks");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [selectedItem, setSelectedItem] = useState<InspectedItem>(null);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
@@ -156,7 +173,7 @@ export function App() {
       setFormulae(installed.formulae);
       setServices(svcs);
 
-      fetchOutdatedPackages()
+      fetchOutdatedPackages(includeGreedy)
         .then((out) => setOutdated(out))
         .catch((err) => console.warn("Failed to fetch outdated packages:", err));
 
@@ -168,6 +185,42 @@ export function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleToggleGreedy = async (val: boolean) => {
+    setIncludeGreedy(val);
+    try {
+      localStorage.setItem("brew_hub_greedy_casks", String(val));
+    } catch (e) {
+      console.warn("Failed to persist greedy preference:", e);
+    }
+    try {
+      const out = await fetchOutdatedPackages(val);
+      setOutdated(out);
+    } catch (err) {
+      console.warn("Failed to re-fetch outdated packages with greedy flag:", err);
+    }
+  };
+
+  const handleToggleIgnoreCask = (token: string) => {
+    setIgnoredCasks((prev) => {
+      const next = prev.includes(token)
+        ? prev.filter((t) => t !== token)
+        : [...prev, token];
+      try {
+        localStorage.setItem("brew_hub_ignored_casks", JSON.stringify(next));
+      } catch (e) {
+        console.warn("Failed to persist ignored casks:", e);
+      }
+      return next;
+    });
+  };
+
+  const handleTogglePinFormula = async (name: string, isCurrentlyPinned: boolean) => {
+    const action = isCurrentlyPinned ? "unpin" : "pin";
+    const title = `brew ${action} ${name}`;
+    const args = [action, name];
+    await runOperation(title, args, { onSuccess: loadData });
   };
 
   useEffect(() => {
@@ -247,13 +300,48 @@ export function App() {
   };
 
   const handleUpgradePackage = async (name: string, isCask: boolean) => {
-    const title = `brew upgrade ${isCask ? "--cask " : ""}${name}`;
-    const args = isCask ? ["upgrade", "--cask", name] : ["upgrade", name];
+    const greedy = isCask && includeGreedy;
+    const title = `brew upgrade ${isCask ? "--cask " : ""}${greedy ? "--greedy " : ""}${name}`;
+    const args = isCask
+      ? greedy
+        ? ["upgrade", "--cask", "--greedy", name]
+        : ["upgrade", "--cask", name]
+      : ["upgrade", name];
     await runOperation(title, args, { onSuccess: loadData });
   };
 
   const handleUpgradeAll = async (_forceRefresh = false) => {
-    await runOperation("brew upgrade", ["upgrade"], { onSuccess: loadData });
+    const pinnedFormulae = outdated.formulae.filter((f) => f.pinned);
+    const upgradeableFormulae = outdated.formulae.filter((f) => !f.pinned);
+
+    const ignoredCasksList = outdated.casks.filter((c) => ignoredCasks.includes(c.name));
+    const upgradeableCasks = outdated.casks.filter((c) => !ignoredCasks.includes(c.name));
+
+    // If there are pinned or ignored items, upgrade only non-pinned, non-ignored targets
+    if (pinnedFormulae.length > 0 || ignoredCasksList.length > 0) {
+      const targets = [
+        ...upgradeableFormulae.map((f) => f.name),
+        ...upgradeableCasks.map((c) => c.name),
+      ];
+
+      if (targets.length === 0) {
+        return;
+      }
+
+      const args = ["upgrade", ...targets];
+      if (includeGreedy && upgradeableCasks.length > 0) {
+        args.push("--greedy");
+      }
+      await runOperation(`brew upgrade (${targets.length} packages)`, args, { onSuccess: loadData });
+    } else {
+      const args = ["upgrade"];
+      if (includeGreedy) {
+        args.push("--greedy");
+      }
+      await runOperation(includeGreedy ? "brew upgrade --greedy" : "brew upgrade", args, {
+        onSuccess: loadData,
+      });
+    }
   };
 
   const handleUninstallPackage = async (name: string, isCask: boolean) => {
@@ -431,7 +519,11 @@ export function App() {
   };
 
   const headerMeta = getTabHeader();
-  const totalOutdatedCount = (outdated.formulae?.length || 0) + (outdated.casks?.length || 0);
+  const actionableFormulaeCount = (outdated.formulae || []).filter((f) => !f.pinned).length;
+  const actionableCasksCount = (outdated.casks || []).filter(
+    (c) => !ignoredCasks.includes(c.name)
+  ).length;
+  const totalOutdatedCount = actionableFormulaeCount + actionableCasksCount;
   const runningServicesCount = services.filter((s) => s.status === "started").length;
 
   return (
@@ -499,6 +591,11 @@ export function App() {
                 isActionRunning={isActionRunning}
                 isLoading={isLoading}
                 onSelectItem={handleSelectItem}
+                includeGreedy={includeGreedy}
+                onToggleGreedy={handleToggleGreedy}
+                ignoredCasks={ignoredCasks}
+                onTogglePin={handleTogglePinFormula}
+                onToggleIgnoreCask={handleToggleIgnoreCask}
                 onCheckUpdates={handleCheckForUpdates}
                 isCheckingUpdates={isCheckingUpdates}
               />
@@ -520,6 +617,10 @@ export function App() {
                 isLoading={isLoading}
                 selectedItem={selectedItem}
                 onSelectItem={handleSelectItem}
+                includeGreedy={includeGreedy}
+                onToggleGreedy={handleToggleGreedy}
+                ignoredCasks={ignoredCasks}
+                onToggleIgnoreCask={handleToggleIgnoreCask}
               />
             )}
 
@@ -530,6 +631,7 @@ export function App() {
                 searchTerm={searchTerm}
                 onUpgrade={(name) => handleUpgradePackage(name, false)}
                 onUninstall={(name) => handleUninstallPackage(name, false)}
+                onTogglePin={handleTogglePinFormula}
                 isActionRunning={isActionRunning}
                 isLoading={isLoading}
                 selectedItem={selectedItem}
@@ -589,6 +691,9 @@ export function App() {
               onClose={() => setIsInspectorOpen(false)}
               onUpgrade={handleUpgradePackage}
               onUninstall={handleUninstallPackage}
+              onTogglePin={handleTogglePinFormula}
+              ignoredCasks={ignoredCasks}
+              onToggleIgnoreCask={handleToggleIgnoreCask}
               isActionRunning={isActionRunning}
             />
           )}

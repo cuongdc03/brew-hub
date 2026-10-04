@@ -4,10 +4,10 @@ use brew::{
     adopt_cask_package, cancel_operation, check_brew_doctor, check_brewfile,
     export_brewfile_to_path, get_autoremove_dry_run, get_brewfile_content, get_cleanup_dry_run,
     get_installed_json, get_outdated_json, get_services_list, get_system_info, install_brewfile,
-    manage_service_action, package_operation, run_autoremove_execute, run_brew_streaming,
-    run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew, update_brew_index,
-    AutoremovePreview, BrewfileCheckResult, BrewfileData, CleanupPreview, CommandOutput, OpEvent,
-    SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    manage_service_action, package_operation, pin_formula, run_autoremove_execute,
+    run_brew_streaming, run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew,
+    unpin_formula, update_brew_index, AutoremovePreview, BrewfileCheckResult, BrewfileData,
+    CleanupPreview, CommandOutput, OpEvent, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
@@ -30,14 +30,14 @@ async fn get_installed() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-async fn get_outdated() -> Result<serde_json::Value, String> {
-    get_outdated_json().await
+async fn get_outdated(greedy: Option<bool>) -> Result<serde_json::Value, String> {
+    get_outdated_json(greedy.unwrap_or(false)).await
 }
 
 #[tauri::command]
-async fn check_for_updates() -> Result<serde_json::Value, String> {
+async fn check_for_updates(greedy: Option<bool>) -> Result<serde_json::Value, String> {
     let _ = update_brew_index().await;
-    let outdated = get_outdated_json().await?;
+    let outdated = get_outdated_json(greedy.unwrap_or(false)).await?;
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -84,18 +84,32 @@ async fn run_autoremove() -> Result<CommandOutput, String> {
 }
 
 #[tauri::command]
-async fn upgrade_package(name: String, is_cask: bool) -> Result<CommandOutput, String> {
-    package_operation("upgrade", &name, is_cask).await
+async fn upgrade_package(
+    name: String,
+    is_cask: bool,
+    greedy: Option<bool>,
+) -> Result<CommandOutput, String> {
+    package_operation("upgrade", &name, is_cask, greedy.unwrap_or(false)).await
 }
 
 #[tauri::command]
 async fn uninstall_package(name: String, is_cask: bool) -> Result<CommandOutput, String> {
-    package_operation("uninstall", &name, is_cask).await
+    package_operation("uninstall", &name, is_cask, false).await
 }
 
 #[tauri::command]
 async fn install_package(name: String, is_cask: bool) -> Result<CommandOutput, String> {
-    package_operation("install", &name, is_cask).await
+    package_operation("install", &name, is_cask, false).await
+}
+
+#[tauri::command]
+async fn pin_package(name: String) -> Result<CommandOutput, String> {
+    pin_formula(&name).await
+}
+
+#[tauri::command]
+async fn unpin_package(name: String) -> Result<CommandOutput, String> {
+    unpin_formula(&name).await
 }
 
 #[tauri::command]
@@ -206,17 +220,17 @@ pub fn run() {
                                 let app_handle = app.clone();
                                 tauri::async_runtime::spawn(async move {
                                     let _ = brew::update_brew_index().await;
-                                    if let Ok(outdated_val) = brew::get_outdated_json().await {
+                                    if let Ok(outdated_val) = brew::get_outdated_json(false).await {
                                         let timestamp = std::time::SystemTime::now()
                                             .duration_since(std::time::UNIX_EPOCH)
                                             .map(|d| d.as_secs())
                                             .unwrap_or(0);
                                         let _ = app_handle.emit(
-                                            "brew-updates-checked",
-                                            serde_json::json!({
-                                                "outdated": &outdated_val,
-                                                "last_checked": timestamp,
-                                            }),
+                                             "brew-updates-checked",
+                                             serde_json::json!({
+                                                 "outdated": &outdated_val,
+                                                 "last_checked": timestamp,
+                                             }),
                                         );
                                         let f_count = outdated_val
                                             .get("formulae")
@@ -280,7 +294,7 @@ pub fn run() {
                     tokio::time::sleep(std::time::Duration::from_secs(12)).await;
                     loop {
                         let _ = brew::update_brew_index().await;
-                        if let Ok(outdated_val) = brew::get_outdated_json().await {
+                        if let Ok(outdated_val) = brew::get_outdated_json(false).await {
                             let timestamp = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_secs())
@@ -347,6 +361,8 @@ pub fn run() {
             upgrade_package,
             uninstall_package,
             install_package,
+            pin_package,
+            unpin_package,
             search_packages,
             check_doctor,
             scan_unmanaged,

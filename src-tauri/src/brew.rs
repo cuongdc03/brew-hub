@@ -365,9 +365,13 @@ pub async fn get_installed_json() -> Result<serde_json::Value, String> {
         .map_err(|e| format!("Failed to parse brew info JSON: {}", e))
 }
 
-pub async fn get_outdated_json() -> Result<serde_json::Value, String> {
+pub async fn get_outdated_json(greedy: bool) -> Result<serde_json::Value, String> {
     let mut cmd = create_brew_command();
-    cmd.args(["outdated", "--json=v2"]);
+    cmd.arg("outdated");
+    if greedy {
+        cmd.arg("--greedy");
+    }
+    cmd.arg("--json=v2");
 
     let output = cmd
         .output()
@@ -696,6 +700,7 @@ pub async fn package_operation(
     operation: &str,
     name: &str,
     is_cask: bool,
+    greedy: bool,
 ) -> Result<CommandOutput, String> {
     let _lock = BREW_MUTATION_LOCK.lock().await;
 
@@ -715,6 +720,9 @@ pub async fn package_operation(
     if is_cask {
         args.push("--cask");
     }
+    if greedy && operation == "upgrade" {
+        args.push("--greedy");
+    }
     args.push("--");
     args.push(trimmed_name);
     cmd.args(&args);
@@ -723,6 +731,52 @@ pub async fn package_operation(
         .output()
         .await
         .map_err(|e| format!("Failed to execute brew {} {}: {}", operation, name, e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+pub async fn pin_formula(name: &str) -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
+
+    let trimmed = name.trim();
+    if !is_valid_package_name(trimmed) {
+        return Err(format!("Invalid package name: '{}'", name));
+    }
+
+    let mut cmd = create_brew_command();
+    cmd.args(["pin", "--", trimmed]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew pin {}: {}", trimmed, e))?;
+
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+pub async fn unpin_formula(name: &str) -> Result<CommandOutput, String> {
+    let _lock = BREW_MUTATION_LOCK.lock().await;
+
+    let trimmed = name.trim();
+    if !is_valid_package_name(trimmed) {
+        return Err(format!("Invalid package name: '{}'", name));
+    }
+
+    let mut cmd = create_brew_command();
+    cmd.args(["unpin", "--", trimmed]);
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew unpin {}: {}", trimmed, e))?;
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -1804,11 +1858,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_package_operation_rejects_flag_injection() {
-        let res = package_operation("install", "--force", false).await;
+        let res = package_operation("install", "--force", false, false).await;
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Invalid package name"));
 
-        let res2 = package_operation("unauthorized_op", "git", false).await;
+        let res2 = package_operation("unauthorized_op", "git", false, false).await;
         assert!(res2.is_err());
         assert!(res2.unwrap_err().contains("Invalid package operation"));
     }
@@ -2135,5 +2189,25 @@ openssl@1.1
         let res = cancel_operation("nonexistent_op_123").await;
         assert!(res.is_ok());
         assert!(!res.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_pin_unpin_rejects_invalid_names() {
+        let pin_res = pin_formula("--invalid").await;
+        assert!(pin_res.is_err());
+        assert!(pin_res.unwrap_err().contains("Invalid package name"));
+
+        let unpin_res = unpin_formula("; dangerous").await;
+        assert!(unpin_res.is_err());
+        assert!(unpin_res.unwrap_err().contains("Invalid package name"));
+    }
+
+    #[tokio::test]
+    async fn test_get_outdated_json_greedy_parameter() {
+        let res_standard = get_outdated_json(false).await;
+        assert!(res_standard.is_ok());
+        let val_standard = res_standard.unwrap();
+        assert!(val_standard.get("formulae").is_some());
+        assert!(val_standard.get("casks").is_some());
     }
 }

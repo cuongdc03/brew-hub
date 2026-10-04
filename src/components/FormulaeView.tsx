@@ -7,6 +7,8 @@ import {
   Layers,
   Trash2,
   AlertTriangle,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import { FormulaItem, OutdatedPackage } from "../types/brew";
 import { InspectedItem } from "./PackageInspector";
@@ -18,6 +20,7 @@ interface FormulaeViewProps {
   searchTerm: string;
   onUpgrade: (name: string) => void;
   onUninstall: (name: string) => void;
+  onTogglePin?: (name: string, isPinned: boolean) => void;
   isActionRunning: boolean;
   isLoading?: boolean;
   selectedItem: InspectedItem;
@@ -30,18 +33,24 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
   searchTerm,
   onUpgrade,
   onUninstall,
+  onTogglePin,
   isActionRunning,
   isLoading,
   selectedItem,
   onSelectItem,
 }) => {
-  const [filterMode, setFilterMode] = useState<"all" | "outdated">("all");
+  const [filterMode, setFilterMode] = useState<"all" | "outdated" | "pinned">("all");
   const [formulaToUninstall, setFormulaToUninstall] = useState<string | null>(null);
   const outdatedMap = new Map(outdatedList.map((o) => [o.name, o]));
+  const pinnedCount = formulae.filter((f) => f.pinned).length;
 
   const filtered = formulae.filter((item) => {
-    const isOutdated = outdatedMap.has(item.name) || item.outdated;
-    if (filterMode === "outdated" && !isOutdated) return false;
+    if (filterMode === "pinned") {
+      if (!item.pinned) return false;
+    } else {
+      const isOutdated = outdatedMap.has(item.name) || item.outdated;
+      if (filterMode === "outdated" && (!isOutdated || item.pinned)) return false;
+    }
 
     const q = searchTerm.toLowerCase();
     const nameMatch = item.name.toLowerCase().includes(q);
@@ -69,8 +78,20 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[#FF9F0A]" />
-            Updates ({outdatedList.length})
+            Updates ({outdatedList.filter((f) => !f.pinned).length})
           </button>
+          {pinnedCount > 0 && (
+            <button
+              onClick={() => setFilterMode("pinned")}
+              className={`apple-segmented-btn cursor-pointer flex items-center gap-1.5 ${
+                filterMode === "pinned" ? "active" : ""
+              }`}
+              title="Pinned formulae whose upgrades are held back"
+            >
+              <Pin className="w-3 h-3 text-amber-400" />
+              Pinned ({pinnedCount})
+            </button>
+          )}
         </div>
 
         <div className="text-xs text-zinc-500 font-mono">
@@ -132,6 +153,14 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
                         <span className="group-hover:text-[#0A84FF] transition-colors">
                           {item.name}
                         </span>
+                        {item.pinned && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-sans px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium shrink-0"
+                            title="Pinned formula: updates are held back and skipped during Upgrade All"
+                          >
+                            📌 Pinned
+                          </span>
+                        )}
                         {item.license && (
                           <span className="text-[10px] font-sans px-1.5 py-0.2 rounded bg-white/[0.06] text-zinc-400 border border-white/5">
                             {item.license}
@@ -147,12 +176,25 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
                     <td className="py-2.5 px-4 font-mono">
                       {isOutdated ? (
                         <div className="flex items-center gap-1.5 text-[#FF9F0A]">
-                          <ArrowUpCircle className="w-3.5 h-3.5 text-[#FF9F0A] shrink-0" />
+                          <ArrowUpCircle
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              item.pinned ? "text-amber-400" : "text-[#FF9F0A]"
+                            }`}
+                          />
                           <span>{installedVer}</span>
                           <span className="text-zinc-600">&rarr;</span>
-                          <span className="font-semibold text-[#FF9F0A]">
+                          <span
+                            className={`font-semibold ${
+                              item.pinned ? "text-amber-400" : "text-[#FF9F0A]"
+                            }`}
+                          >
                             {outdatedInfo?.current_version || item.versions?.stable}
                           </span>
+                          {item.pinned && (
+                            <span className="text-[10px] text-amber-400/80 font-sans font-medium">
+                              (held back)
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5 text-zinc-400">
@@ -187,7 +229,30 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
                           </a>
                         )}
 
-                        {isOutdated && (
+                        {onTogglePin && (
+                          <button
+                            onClick={() => onTogglePin(item.name, item.pinned)}
+                            disabled={isActionRunning}
+                            className={`p-1 rounded transition-colors cursor-pointer disabled:opacity-40 ${
+                              item.pinned
+                                ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                                : "text-zinc-500 hover:text-zinc-200 hover:bg-white/5"
+                            }`}
+                            title={
+                              item.pinned
+                                ? "Unpin formula (allow upgrades)"
+                                : "Pin formula (hold back upgrades)"
+                            }
+                          >
+                            {item.pinned ? (
+                              <PinOff className="w-3.5 h-3.5" />
+                            ) : (
+                              <Pin className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
+
+                        {isOutdated && !item.pinned && (
                           <button
                             onClick={() => onUpgrade(item.name)}
                             className="px-2.5 py-0.5 apple-btn-primary text-[11px] cursor-pointer"
