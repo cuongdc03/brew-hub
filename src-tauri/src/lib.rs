@@ -5,8 +5,8 @@ use brew::{
     export_brewfile_to_path, get_brewfile_content, get_cleanup_dry_run, get_installed_json,
     get_outdated_json, get_services_list, get_system_info, install_brewfile, manage_service_action,
     package_operation, run_autoremove_execute, run_brew_streaming, run_cleanup_execute,
-    save_brewfile, scan_unmanaged_apps, search_brew, BrewfileCheckResult, CleanupPreview,
-    CommandOutput, OpEvent, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    save_brewfile, scan_unmanaged_apps, search_brew, update_brew_index, BrewfileCheckResult,
+    CleanupPreview, CommandOutput, OpEvent, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -28,6 +28,21 @@ async fn get_installed() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn get_outdated() -> Result<serde_json::Value, String> {
     get_outdated_json().await
+}
+
+#[tauri::command]
+async fn check_for_updates() -> Result<serde_json::Value, String> {
+    let _ = update_brew_index().await;
+    let outdated = get_outdated_json().await?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "outdated": outdated,
+        "last_checked": timestamp,
+    }))
 }
 
 #[tauri::command]
@@ -176,7 +191,19 @@ pub fn run() {
                             "check" => {
                                 let app_handle = app.clone();
                                 tauri::async_runtime::spawn(async move {
+                                    let _ = brew::update_brew_index().await;
                                     if let Ok(outdated_val) = brew::get_outdated_json().await {
+                                        let timestamp = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map(|d| d.as_secs())
+                                            .unwrap_or(0);
+                                        let _ = app_handle.emit(
+                                            "brew-updates-checked",
+                                            serde_json::json!({
+                                                "outdated": &outdated_val,
+                                                "last_checked": timestamp,
+                                            }),
+                                        );
                                         let f_count = outdated_val
                                             .get("formulae")
                                             .and_then(|v| v.as_array())
@@ -238,7 +265,19 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(12)).await;
                     loop {
+                        let _ = brew::update_brew_index().await;
                         if let Ok(outdated_val) = brew::get_outdated_json().await {
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            let _ = bg_handle.emit(
+                                "brew-updates-checked",
+                                serde_json::json!({
+                                    "outdated": &outdated_val,
+                                    "last_checked": timestamp,
+                                }),
+                            );
                             let f_count = outdated_val
                                 .get("formulae")
                                 .and_then(|v| v.as_array())
@@ -273,6 +312,7 @@ pub fn run() {
             get_system,
             get_installed,
             get_outdated,
+            check_for_updates,
             get_services,
             manage_service,
             get_cleanup_preview,
