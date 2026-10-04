@@ -24,6 +24,7 @@ export interface FormulaItem {
   outdated: boolean;
   pinned: boolean;
   dependencies: string[];
+  linked_keg?: string | null;
 }
 
 export interface CaskItem {
@@ -79,6 +80,10 @@ export interface CleanupPreview {
   total_space: string;
 }
 
+export interface AutoremovePreview {
+  formulae: string[];
+}
+
 export interface SearchResult {
   formulae: string[];
   casks: string[];
@@ -109,4 +114,10 @@ export interface BrewfileCheckResult {
   missing_count: number;
   missing_items: string[];
   raw_output: string;
+}
+
+export interface BrewfileData {
+  path: string;
+  content: string;
+  source: "file" | "dump";
 }
