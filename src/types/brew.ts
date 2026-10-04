@@ -114,3 +114,9 @@ export interface BrewfileCheckResult {
   missing_items: string[];
   raw_output: string;
 }
+
+export interface BrewfileData {
+  path: string;
+  content: string;
+  source: "file" | "dump";
+}

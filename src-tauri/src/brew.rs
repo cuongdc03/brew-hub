@@ -68,6 +68,13 @@ pub struct UnmanagedApp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrewfileData {
+    pub path: String,
+    pub content: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrewfileCheckResult {
     pub satisfied: bool,
     pub missing_count: usize,
@@ -150,7 +157,6 @@ pub fn validate_brewfile_path(path: &Path) -> Result<(), String> {
         "/System",
         "/Library",
         "/Applications",
-        "/private",
     ];
     for prefix in &forbidden_prefixes {
         if resolved_str.starts_with(prefix) {
@@ -159,6 +165,14 @@ pub fn validate_brewfile_path(path: &Path) -> Result<(), String> {
                 prefix
             ));
         }
+    }
+
+    if resolved_str.starts_with("/private")
+        && !resolved_str.starts_with("/private/tmp")
+        && !resolved_str.starts_with("/private/var/folders")
+        && !resolved_str.starts_with("/private/var/tmp")
+    {
+        return Err("Access denied: writing to '/private' is prohibited".to_string());
     }
 
     if let Ok(home) = std::env::var("HOME") {
@@ -1147,13 +1161,18 @@ pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
     })
 }
 
-pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String> {
-    if let Some(custom_path) = path {
+pub async fn get_brewfile_content(path: Option<String>) -> Result<BrewfileData, String> {
+    if let Some(custom_path) = path.filter(|s| !s.trim().is_empty()) {
         let p = PathBuf::from(&custom_path);
         validate_brewfile_path(&p)?;
         if p.exists() {
-            return std::fs::read_to_string(&p)
-                .map_err(|e| format!("Failed to read Brewfile at {}: {}", custom_path, e));
+            let content = std::fs::read_to_string(&p)
+                .map_err(|e| format!("Failed to read Brewfile at {}: {}", custom_path, e))?;
+            return Ok(BrewfileData {
+                path: custom_path,
+                content,
+                source: "file".to_string(),
+            });
         } else {
             return Err(format!("Brewfile at {} does not exist", custom_path));
         }
@@ -1167,7 +1186,11 @@ pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String
         for sp in &standard_paths {
             if sp.exists() {
                 if let Ok(content) = std::fs::read_to_string(sp) {
-                    return Ok(content);
+                    return Ok(BrewfileData {
+                        path: sp.to_string_lossy().to_string(),
+                        content,
+                        source: "file".to_string(),
+                    });
                 }
             }
         }
@@ -1185,11 +1208,24 @@ pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let default_save_path = std::env::var("HOME")
+        .map(|h| {
+            PathBuf::from(h)
+                .join(".Brewfile")
+                .to_string_lossy()
+                .to_string()
+        })
+        .unwrap_or_else(|_| "~/.Brewfile".to_string());
+
+    Ok(BrewfileData {
+        path: default_save_path,
+        content: String::from_utf8_lossy(&output.stdout).to_string(),
+        source: "dump".to_string(),
+    })
 }
 
 pub async fn save_brewfile(content: String, path: Option<String>) -> Result<String, String> {
-    let target_path = if let Some(p) = path {
+    let target_path = if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
         let pb = PathBuf::from(p);
         validate_brewfile_path(&pb)?;
         pb
@@ -1220,22 +1256,22 @@ pub async fn check_brewfile(
     path: Option<String>,
     content: Option<String>,
 ) -> Result<BrewfileCheckResult, String> {
-    let check_file_path = if let Some(text) = content {
+    let (check_file_path, is_temp) = if let Some(text) = content {
         let temp_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&temp_dir);
-        let temp_file = temp_dir.join("Brewfile.check");
+        let temp_file = temp_dir.join(format!("Brewfile.check.{}", std::process::id()));
         std::fs::write(&temp_file, text)
             .map_err(|e| format!("Failed to write temporary check Brewfile: {}", e))?;
-        temp_file
-    } else if let Some(p) = path {
+        (temp_file, true)
+    } else if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
         let custom_p = PathBuf::from(p);
         validate_brewfile_path(&custom_p)?;
-        custom_p
+        (custom_p, false)
     } else {
         let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
         let default_p = PathBuf::from(home).join(".Brewfile");
         validate_brewfile_path(&default_p)?;
-        default_p
+        (default_p, false)
     };
 
     let mut cmd = create_brew_command();
@@ -1247,10 +1283,13 @@ pub async fn check_brewfile(
         "--no-upgrade",
     ]);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run brew bundle check: {}", e))?;
+    let output_res = cmd.output().await;
+
+    if is_temp {
+        let _ = std::fs::remove_file(&check_file_path);
+    }
+
+    let output = output_res.map_err(|e| format!("Failed to run brew bundle check: {}", e))?;
 
     let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr_str = String::from_utf8_lossy(&output.stderr).to_string();
@@ -1281,22 +1320,22 @@ pub async fn install_brewfile(
     no_upgrade: bool,
 ) -> Result<CommandOutput, String> {
     let _lock = BREW_MUTATION_LOCK.lock().await;
-    let install_file_path = if let Some(text) = content {
+    let (install_file_path, is_temp) = if let Some(text) = content {
         let temp_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&temp_dir);
-        let temp_file = temp_dir.join("Brewfile.install");
+        let temp_file = temp_dir.join(format!("Brewfile.install.{}", std::process::id()));
         std::fs::write(&temp_file, text)
             .map_err(|e| format!("Failed to write temporary install Brewfile: {}", e))?;
-        temp_file
-    } else if let Some(p) = path {
+        (temp_file, true)
+    } else if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
         let custom_p = PathBuf::from(p);
         validate_brewfile_path(&custom_p)?;
-        custom_p
+        (custom_p, false)
     } else {
         let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
         let default_p = PathBuf::from(home).join(".Brewfile");
         validate_brewfile_path(&default_p)?;
-        default_p
+        (default_p, false)
     };
 
     let mut cmd = create_brew_command();
@@ -1311,10 +1350,13 @@ pub async fn install_brewfile(
     }
     cmd.args(&args);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("Failed to execute brew bundle install: {}", e))?;
+    let output_res = cmd.output().await;
+
+    if is_temp {
+        let _ = std::fs::remove_file(&install_file_path);
+    }
+
+    let output = output_res.map_err(|e| format!("Failed to execute brew bundle install: {}", e))?;
 
     Ok(CommandOutput {
         success: output.status.success(),
@@ -1608,7 +1650,6 @@ mod tests {
         assert!(r1.is_ok());
         assert!(r2.is_ok());
     }
-
     #[tokio::test]
     async fn test_update_brew_index_runnable() {
         let res = update_brew_index().await;
@@ -1710,5 +1751,40 @@ openssl@1.1
             formulae,
             vec!["libyaml".to_string(), "openssl@1.1".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn test_brewfile_save_and_read_custom_path() {
+        let temp_dir = std::env::temp_dir().join("brew-hub-test");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join(format!("Brewfile.test.{}", std::process::id()));
+        let test_path = test_file.to_string_lossy().to_string();
+
+        let sample_content = "tap \"homebrew/core\"\nbrew \"curl\"\n";
+        let save_res = save_brewfile(sample_content.to_string(), Some(test_path.clone())).await;
+        assert!(save_res.is_ok());
+
+        let read_res = get_brewfile_content(Some(test_path.clone())).await;
+        assert!(read_res.is_ok());
+        let brewfile_data = read_res.unwrap();
+        assert_eq!(brewfile_data.content, sample_content);
+        assert_eq!(brewfile_data.path, test_path);
+        assert_eq!(brewfile_data.source, "file");
+
+        let _ = std::fs::remove_file(&test_file);
+        let _ = std::fs::remove_dir(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_brewfile_check_temp_cleanup() {
+        let temp_check_file = std::env::temp_dir()
+            .join("brew-hub")
+            .join(format!("Brewfile.check.{}", std::process::id()));
+
+        // Run check with inline content
+        let _ = check_brewfile(None, Some("tap \"homebrew/core\"\n".to_string())).await;
+
+        // Verify the temporary file was cleaned up and no longer exists
+        assert!(!temp_check_file.exists());
     }
 }

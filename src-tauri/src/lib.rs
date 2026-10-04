@@ -6,7 +6,8 @@ use brew::{
     get_outdated_json, get_services_list, get_system_info, install_brewfile, manage_service_action,
     package_operation, run_autoremove_execute, run_cleanup_execute, save_brewfile,
     scan_unmanaged_apps, search_brew, update_brew_index, AutoremovePreview, BrewfileCheckResult,
-    CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    BrewfileData, CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo,
+    UnmanagedApp,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
@@ -118,7 +119,7 @@ async fn adopt_cask(token: String) -> Result<CommandOutput, String> {
 }
 
 #[tauri::command]
-async fn get_brewfile(path: Option<String>) -> Result<String, String> {
+async fn get_brewfile(path: Option<String>) -> Result<BrewfileData, String> {
     get_brewfile_content(path).await
 }
 

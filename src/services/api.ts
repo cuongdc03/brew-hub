@@ -10,6 +10,7 @@ import {
   SystemInfo,
   UnmanagedApp,
   BrewfileCheckResult,
+  BrewfileData,
   CheckUpdatesResult,
 } from "../types/brew";
 
@@ -100,8 +101,8 @@ export async function adoptCask(token: string): Promise<CommandOutput> {
   return await invoke<CommandOutput>("adopt_cask", { token });
 }
 
-export async function fetchBrewfile(path?: string): Promise<string> {
-  return await invoke<string>("get_brewfile", { path });
+export async function fetchBrewfile(path?: string): Promise<BrewfileData> {
+  return await invoke<BrewfileData>("get_brewfile", { path });
 }
 
 export async function saveBrewfile(content: string, path?: string): Promise<string> {
