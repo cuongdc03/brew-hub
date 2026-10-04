@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
@@ -84,34 +84,125 @@ pub fn get_brew_bin() -> PathBuf {
     PathBuf::from("brew")
 }
 
+pub fn is_valid_package_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.len() > 128 || trimmed.starts_with('-') {
+        return false;
+    }
+    trimmed.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || c == '-'
+            || c == '_'
+            || c == '.'
+            || c == '@'
+            || c == '+'
+            || c == ':'
+            || c == '/'
+    })
+}
+
+pub fn validate_brewfile_path(path: &Path) -> Result<(), String> {
+    let path_str = path.to_string_lossy();
+    if path_str.contains('\0') {
+        return Err("Path contains invalid null byte".to_string());
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| "Invalid file path: missing filename".to_string())?;
+
+    let file_name_lower = file_name.to_lowercase();
+    let is_valid_name = file_name_lower == "brewfile"
+        || file_name_lower == ".brewfile"
+        || file_name_lower.starts_with("brewfile.")
+        || file_name_lower.ends_with(".rb")
+        || file_name_lower.ends_with(".txt")
+        || file_name_lower.ends_with(".brewfile");
+
+    if !is_valid_name {
+        return Err(
+            "Brewfile filename must be 'Brewfile', '.Brewfile', or end with .rb, .txt, or .brewfile"
+                .to_string(),
+        );
+    }
+
+    let canonical_or_target = if path.exists() {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+    let resolved_str = canonical_or_target.to_string_lossy();
+
+    let forbidden_prefixes = [
+        "/etc",
+        "/bin",
+        "/sbin",
+        "/usr",
+        "/System",
+        "/Library",
+        "/Applications",
+        "/private",
+    ];
+    for prefix in &forbidden_prefixes {
+        if resolved_str.starts_with(prefix) {
+            return Err(format!(
+                "Access denied: writing to '{}' is prohibited",
+                prefix
+            ));
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let sensitive_user_paths = [
+            format!("{}/.ssh", home),
+            format!("{}/.gnupg", home),
+            format!("{}/.zshrc", home),
+            format!("{}/.bashrc", home),
+            format!("{}/.profile", home),
+            format!("{}/.bash_profile", home),
+            format!("{}/.zprofile", home),
+        ];
+        for sensitive in &sensitive_user_paths {
+            if resolved_str == *sensitive || resolved_str.starts_with(&format!("{}/", sensitive)) {
+                return Err(
+                    "Access denied: writing to sensitive configuration file is prohibited"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn get_or_create_askpass_script() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let cache_dir = std::env::temp_dir().join("brew-hub");
         let _ = std::fs::create_dir_all(&cache_dir);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&cache_dir, std::fs::Permissions::from_mode(0o700));
+        }
         let script_path = cache_dir.join("brew-hub-askpass.sh");
 
+        // StandardAdditions provides display dialog without needing tell application "System Events",
+        // avoiding macOS TCC Automation prompts that cause silent permission failures.
         let script_content = r#"#!/bin/sh
 exec /usr/bin/osascript -e '
-tell application "System Events"
-    activate
-    set theResp to display dialog "Brew Hub requires administrator privileges to modify system packages:" default answer "" with hidden answer with icon caution with title "Brew Hub Authorization" buttons {"Cancel", "OK"} default button "OK"
-    return text returned of theResp
-end tell
+set theResp to display dialog "Brew Hub requires administrator privileges to modify system packages:" default answer "" with hidden answer with icon caution with title "Brew Hub Authorization" buttons {"Cancel", "OK"} default button "OK"
+text returned of theResp
 '
 "#;
 
-        if !script_path.exists() {
-            if let Ok(()) = std::fs::write(&script_path, script_content) {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(
-                        &script_path,
-                        std::fs::Permissions::from_mode(0o755),
-                    );
-                }
-            }
+        // Always rewrite the script to prevent tampering and ensure latest security fixes
+        let _ = std::fs::write(&script_path, script_content);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700));
         }
 
         if script_path.exists() {
@@ -258,8 +349,20 @@ pub async fn get_services_list() -> Result<Vec<ServiceInfo>, String> {
 }
 
 pub async fn manage_service_action(name: &str, action: &str) -> Result<CommandOutput, String> {
+    let trimmed_action = action.trim();
+    if !matches!(trimmed_action, "start" | "stop" | "restart") {
+        return Err(format!(
+            "Invalid service action: '{}'. Allowed actions: start, stop, restart",
+            action
+        ));
+    }
+    let trimmed_name = name.trim();
+    if !is_valid_package_name(trimmed_name) {
+        return Err(format!("Invalid service name: '{}'", name));
+    }
+
     let mut cmd = create_brew_command();
-    cmd.args(["services", action, name]);
+    cmd.args(["services", trimmed_action, "--", trimmed_name]);
 
     let output = cmd
         .output()
@@ -352,13 +455,25 @@ pub async fn package_operation(
     name: &str,
     is_cask: bool,
 ) -> Result<CommandOutput, String> {
+    if !matches!(operation, "install" | "uninstall" | "upgrade") {
+        return Err(format!(
+            "Invalid package operation: '{}'. Allowed operations: install, uninstall, upgrade",
+            operation
+        ));
+    }
+    let trimmed_name = name.trim();
+    if !is_valid_package_name(trimmed_name) {
+        return Err(format!("Invalid package name: '{}'", name));
+    }
+
     let mut cmd = create_brew_command();
     let mut args = vec![operation];
 
     if is_cask {
         args.push("--cask");
     }
-    args.push(name);
+    args.push("--");
+    args.push(trimmed_name);
     cmd.args(&args);
 
     let output = cmd
@@ -375,7 +490,7 @@ pub async fn package_operation(
 
 pub async fn search_brew(query: &str) -> Result<SearchResult, String> {
     let trimmed_query = query.trim();
-    if trimmed_query.is_empty() {
+    if trimmed_query.is_empty() || trimmed_query.len() > 100 {
         return Ok(SearchResult {
             formulae: Vec::new(),
             casks: Vec::new(),
@@ -384,10 +499,10 @@ pub async fn search_brew(query: &str) -> Result<SearchResult, String> {
 
     // Run --cask and --formula concurrently for precision and speed
     let mut cask_cmd = create_brew_command();
-    cask_cmd.args(["search", "--cask", trimmed_query]);
+    cask_cmd.args(["search", "--cask", "--", trimmed_query]);
 
     let mut formula_cmd = create_brew_command();
-    formula_cmd.args(["search", "--formula", trimmed_query]);
+    formula_cmd.args(["search", "--formula", "--", trimmed_query]);
 
     let (cask_res, formula_res) = tokio::join!(cask_cmd.output(), formula_cmd.output());
 
@@ -775,13 +890,18 @@ pub async fn scan_unmanaged_apps() -> Result<Vec<UnmanagedApp>, String> {
 }
 
 pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
+    let trimmed = token.trim();
+    if !is_valid_package_name(trimmed) {
+        return Err(format!("Invalid cask token: '{}'", token));
+    }
+
     let mut cmd = create_brew_command();
-    cmd.args(["install", "--cask", "--adopt", token]);
+    cmd.args(["install", "--cask", "--adopt", "--", trimmed]);
 
     let output = cmd.output().await.map_err(|e| {
         format!(
             "Failed to execute brew install --cask --adopt {}: {}",
-            token, e
+            trimmed, e
         )
     })?;
 
@@ -795,6 +915,7 @@ pub async fn adopt_cask_package(token: &str) -> Result<CommandOutput, String> {
 pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String> {
     if let Some(custom_path) = path {
         let p = PathBuf::from(&custom_path);
+        validate_brewfile_path(&p)?;
         if p.exists() {
             return std::fs::read_to_string(&p)
                 .map_err(|e| format!("Failed to read Brewfile at {}: {}", custom_path, e));
@@ -834,11 +955,15 @@ pub async fn get_brewfile_content(path: Option<String>) -> Result<String, String
 
 pub async fn save_brewfile(content: String, path: Option<String>) -> Result<String, String> {
     let target_path = if let Some(p) = path {
-        PathBuf::from(p)
+        let pb = PathBuf::from(p);
+        validate_brewfile_path(&pb)?;
+        pb
     } else {
         let home =
             std::env::var("HOME").map_err(|_| "HOME environment variable not set".to_string())?;
-        PathBuf::from(home).join(".Brewfile")
+        let pb = PathBuf::from(home).join(".Brewfile");
+        validate_brewfile_path(&pb)?;
+        pb
     };
 
     if let Some(parent) = target_path.parent() {
@@ -868,10 +993,14 @@ pub async fn check_brewfile(
             .map_err(|e| format!("Failed to write temporary check Brewfile: {}", e))?;
         temp_file
     } else if let Some(p) = path {
-        PathBuf::from(p)
+        let custom_p = PathBuf::from(p);
+        validate_brewfile_path(&custom_p)?;
+        custom_p
     } else {
         let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        PathBuf::from(home).join(".Brewfile")
+        let default_p = PathBuf::from(home).join(".Brewfile");
+        validate_brewfile_path(&default_p)?;
+        default_p
     };
 
     let mut cmd = create_brew_command();
@@ -924,10 +1053,14 @@ pub async fn install_brewfile(
             .map_err(|e| format!("Failed to write temporary install Brewfile: {}", e))?;
         temp_file
     } else if let Some(p) = path {
-        PathBuf::from(p)
+        let custom_p = PathBuf::from(p);
+        validate_brewfile_path(&custom_p)?;
+        custom_p
     } else {
         let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
-        PathBuf::from(home).join(".Brewfile")
+        let default_p = PathBuf::from(home).join(".Brewfile");
+        validate_brewfile_path(&default_p)?;
+        default_p
     };
 
     let mut cmd = create_brew_command();
@@ -955,6 +1088,9 @@ pub async fn install_brewfile(
 }
 
 pub async fn export_brewfile_to_path(target_path: &str) -> Result<CommandOutput, String> {
+    let target = PathBuf::from(target_path);
+    validate_brewfile_path(&target)?;
+
     let mut cmd = create_brew_command();
     cmd.args([
         "bundle",
@@ -1021,18 +1157,106 @@ mod tests {
             let path = script.unwrap();
             assert!(path.exists());
             assert!(path.ends_with("brew-hub-askpass.sh"));
+
+            let content = std::fs::read_to_string(&path).unwrap();
+            // Verify System Events was removed to avoid TCC prompt issues
+            assert!(!content.contains("System Events"));
+            assert!(content.contains("display dialog"));
+
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 let metadata = std::fs::metadata(&path).unwrap();
                 let mode = metadata.permissions().mode();
-                assert_eq!(mode & 0o777, 0o755);
+                // Strict 0o700 permission: readable/writable/executable by user only
+                assert_eq!(mode & 0o777, 0o700);
             }
         }
         #[cfg(not(target_os = "macos"))]
         {
             assert!(script.is_none());
         }
+    }
+
+    #[test]
+    fn test_is_valid_package_name() {
+        // Valid package and cask names
+        assert!(is_valid_package_name("git"));
+        assert!(is_valid_package_name("node@20"));
+        assert!(is_valid_package_name("visual-studio-code"));
+        assert!(is_valid_package_name("homebrew/cask/docker"));
+        assert!(is_valid_package_name("gcc+lib"));
+        assert!(is_valid_package_name("openssl@3.0"));
+
+        // Invalid: flag injections
+        assert!(!is_valid_package_name("-v"));
+        assert!(!is_valid_package_name("--force"));
+        assert!(!is_valid_package_name("--zap"));
+        assert!(!is_valid_package_name("-f"));
+
+        // Invalid: metacharacters, spaces, empty
+        assert!(!is_valid_package_name(""));
+        assert!(!is_valid_package_name("   "));
+        assert!(!is_valid_package_name("pkg; rm -rf /"));
+        assert!(!is_valid_package_name("pkg && echo 1"));
+        assert!(!is_valid_package_name("pkg`whoami`"));
+        assert!(!is_valid_package_name("pkg$var"));
+        assert!(!is_valid_package_name("pkg name with space"));
+    }
+
+    #[test]
+    fn test_validate_brewfile_path() {
+        // Valid paths
+        assert!(validate_brewfile_path(Path::new("/tmp/Brewfile")).is_ok());
+        assert!(validate_brewfile_path(Path::new("/tmp/my.brewfile")).is_ok());
+        assert!(validate_brewfile_path(Path::new("/tmp/Brewfile.rb")).is_ok());
+        assert!(validate_brewfile_path(Path::new("/tmp/packages.txt")).is_ok());
+
+        // Invalid filenames
+        assert!(validate_brewfile_path(Path::new("/tmp/script.sh")).is_err());
+        assert!(validate_brewfile_path(Path::new("/tmp/exploit.py")).is_err());
+
+        // Invalid: system paths
+        assert!(validate_brewfile_path(Path::new("/etc/Brewfile")).is_err());
+        assert!(validate_brewfile_path(Path::new("/bin/Brewfile")).is_err());
+        assert!(validate_brewfile_path(Path::new("/Applications/Brewfile")).is_err());
+
+        // Invalid: sensitive user directories
+        if let Ok(home) = std::env::var("HOME") {
+            let ssh_path = PathBuf::from(&home).join(".ssh/Brewfile");
+            assert!(validate_brewfile_path(&ssh_path).is_err());
+            let zshrc_path = PathBuf::from(&home).join(".zshrc");
+            assert!(validate_brewfile_path(&zshrc_path).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_package_operation_rejects_flag_injection() {
+        let res = package_operation("install", "--force", false).await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid package name"));
+
+        let res2 = package_operation("unauthorized_op", "git", false).await;
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("Invalid package operation"));
+    }
+
+    #[tokio::test]
+    async fn test_manage_service_action_security() {
+        let res = manage_service_action("--all", "start").await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid service name"));
+
+        let res2 = manage_service_action("redis", "restart; rm -rf /").await;
+        assert!(res2.is_err());
+        assert!(res2.unwrap_err().contains("Invalid service action"));
+    }
+
+    #[tokio::test]
+    async fn test_adopt_cask_package_security() {
+        let res = adopt_cask_package("--zap").await;
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Invalid cask token"));
     }
 
     #[test]
