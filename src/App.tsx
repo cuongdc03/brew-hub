@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Sidebar, TabType } from "./components/Sidebar";
 import { UnifiedToolbar } from "./components/UnifiedToolbar";
 import { DashboardView } from "./components/DashboardView";
@@ -10,9 +10,12 @@ import { BrewfileView } from "./components/BrewfileView";
 import { SearchView } from "./components/SearchView";
 import { TerminalModal } from "./components/TerminalModal";
 import { PackageInspector, InspectedItem } from "./components/PackageInspector";
-import { ArrowUpCircle, Zap } from "lucide-react";
+import { ArrowUpCircle, Square, Zap } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
+import { useBrewOperation } from "./hooks/useBrewOperation";
 import {
+  BrewfileCheckResult,
+  BrewfileData,
   CaskItem,
   CleanupPreview,
   FormulaItem,
@@ -22,22 +25,13 @@ import {
   UnmanagedApp,
 } from "./types/brew";
 import {
-  adoptCask,
-  checkDoctor,
-  executeAutoremove,
-  executeCleanup,
+  fetchBrewfile,
   fetchCleanupPreview,
   fetchInstalledPackages,
   fetchOutdatedPackages,
   fetchServices,
   fetchSystemInfo,
   fetchUnmanagedApps,
-  installPackage,
-  manageService,
-  pinPackage,
-  uninstallPackage,
-  unpinPackage,
-  upgradePackage,
   checkForUpdates,
 } from "./services/api";
 
@@ -48,10 +42,35 @@ export function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [casks, setCasks] = useState<CaskItem[]>([]);
   const [unmanagedApps, setUnmanagedApps] = useState<UnmanagedApp[]>([]);
+  const [isScanningUnmanaged, setIsScanningUnmanaged] = useState(false);
+  const [unmanagedAppsError, setUnmanagedAppsError] = useState<string | null>(null);
   const [formulae, setFormulae] = useState<FormulaItem[]>([]);
   const [outdated, setOutdated] = useState<OutdatedData>({ formulae: [], casks: [] });
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
+  const [cleanupPruneAll, setCleanupPruneAll] = useState(true);
+
+  const [brewfileData, setBrewfileData] = useState<BrewfileData | null>(null);
+  const [brewfileSavedContent, setBrewfileSavedContent] = useState<string>("");
+  const [brewfileCheckResult, setBrewfileCheckResult] = useState<BrewfileCheckResult | null>(null);
+  const [isBrewfileLoading, setIsBrewfileLoading] = useState<boolean>(false);
+
+  const isBrewfileDirty =
+    brewfileData !== null && brewfileData.content !== brewfileSavedContent;
+
+  const loadBrewfileData = async (path?: string) => {
+    try {
+      setIsBrewfileLoading(true);
+      const data = await fetchBrewfile(path);
+      setBrewfileData(data);
+      setBrewfileSavedContent(data.content);
+      setBrewfileCheckResult(null);
+    } catch (err) {
+      console.error("Failed to load Brewfile:", err);
+    } finally {
+      setIsBrewfileLoading(false);
+    }
+  };
 
   const [includeGreedy, setIncludeGreedy] = useState<boolean>(() => {
     try {
@@ -74,7 +93,16 @@ export function App() {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [isActionRunning, setIsActionRunning] = useState(false);
+  const {
+    terminalState,
+    isActionRunning,
+    runOperation,
+    cancelActiveOperation,
+    closeTerminal,
+    openTerminal,
+    setTerminalState,
+  } = useBrewOperation();
+
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [lastChecked, setLastChecked] = useState<number | null>(() => {
     const saved = localStorage.getItem("brewhub_last_checked");
@@ -100,17 +128,26 @@ export function App() {
     }
   };
 
-  const [terminalState, setTerminalState] = useState<{
-    isOpen: boolean;
-    title: string;
-    output: string;
-    isLoading: boolean;
-  }>({
-    isOpen: false,
-    title: "",
-    output: "",
-    isLoading: false,
-  });
+  const isActionRunningRef = useRef(isActionRunning);
+  isActionRunningRef.current = isActionRunning;
+
+  const outdatedRef = useRef(outdated);
+  outdatedRef.current = outdated;
+
+  const loadUnmanagedApps = async () => {
+    setIsScanningUnmanaged(true);
+    setUnmanagedAppsError(null);
+    try {
+      const apps = await fetchUnmanagedApps();
+      setUnmanagedApps(apps);
+    } catch (err: any) {
+      console.warn("Failed to scan unmanaged apps:", err);
+      const msg = typeof err === "string" ? err : err?.message || "Failed to scan applications";
+      setUnmanagedAppsError(msg);
+    } finally {
+      setIsScanningUnmanaged(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -140,13 +177,9 @@ export function App() {
         .then((out) => setOutdated(out))
         .catch((err) => console.warn("Failed to fetch outdated packages:", err));
 
-      fetchCleanupPreview()
+      fetchCleanupPreview(true)
         .then((cln) => setCleanupPreview(cln))
         .catch((err) => console.warn("Failed to fetch cleanup preview:", err));
-
-      fetchUnmanagedApps()
-        .then((apps) => setUnmanagedApps(apps))
-        .catch((err) => console.warn("Failed to scan unmanaged apps:", err));
     } catch (err) {
       console.error("Error loading Homebrew data:", err);
     } finally {
@@ -185,51 +218,45 @@ export function App() {
 
   const handleTogglePinFormula = async (name: string, isCurrentlyPinned: boolean) => {
     const action = isCurrentlyPinned ? "unpin" : "pin";
-    setTerminalState({
-      isOpen: true,
-      title: `brew ${action} ${name}`,
-      output: `==> Running: brew ${action} ${name}...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = isCurrentlyPinned ? await unpinPackage(name) : await pinPackage(name);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n==> ${
-          isCurrentlyPinned ? `Unpinned ${name} successfully` : `Pinned ${name} successfully`
-        }`,
-        isLoading: false,
-      }));
-      await loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    const title = `brew ${action} ${name}`;
+    const args = [action, name];
+    await runOperation(title, args, { onSuccess: loadData });
   };
 
   useEffect(() => {
     loadData();
+    loadUnmanagedApps();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "brewfile" && !brewfileData && !isBrewfileLoading) {
+      loadBrewfileData();
+    }
+  }, [activeTab]);
 
   // Listen for macOS menu-bar tray actions
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let isMounted = true;
+
     listen("tray-upgrade-all", () => {
-      handleUpgradeAll();
+      if (isActionRunningRef.current) {
+        return;
+      }
+      handleUpgradeAll(true);
     }).then((fn) => {
-      unlisten = fn;
+      if (isMounted) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
     });
+
     return () => {
+      isMounted = false;
       if (unlisten) unlisten();
     };
-  }, [outdated]);
+  }, []);
 
   // Listen for background or tray update check completions
   useEffect(() => {
@@ -274,123 +301,54 @@ export function App() {
 
   const handleUpgradePackage = async (name: string, isCask: boolean) => {
     const greedy = isCask && includeGreedy;
-    setTerminalState({
-      isOpen: true,
-      title: `brew upgrade ${isCask ? "--cask " : ""}${greedy ? "--greedy " : ""}${name}`,
-      output: `==> Running: brew upgrade ${isCask ? "--cask " : ""}${greedy ? "--greedy " : ""}${name}\nUpdating package binaries...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await upgradePackage(name, isCask, greedy);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Upgrade ${
-          res.success ? "completed successfully!" : "finished."
-        }`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    const title = `brew upgrade ${isCask ? "--cask " : ""}${greedy ? "--greedy " : ""}${name}`;
+    const args = isCask
+      ? greedy
+        ? ["upgrade", "--cask", "--greedy", name]
+        : ["upgrade", "--cask", name]
+      : ["upgrade", name];
+    await runOperation(title, args, { onSuccess: loadData });
   };
 
-  const handleUpgradeAll = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew upgrade",
-      output: "==> Upgrading outdated packages & applications...\nPlease wait...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
+  const handleUpgradeAll = async (_forceRefresh = false) => {
+    const pinnedFormulae = outdated.formulae.filter((f) => f.pinned);
+    const upgradeableFormulae = outdated.formulae.filter((f) => !f.pinned);
 
-    try {
-      const pinnedFormulae = outdated.formulae.filter((f) => f.pinned);
-      const upgradeableFormulae = outdated.formulae.filter((f) => !f.pinned);
+    const ignoredCasksList = outdated.casks.filter((c) => ignoredCasks.includes(c.name));
+    const upgradeableCasks = outdated.casks.filter((c) => !ignoredCasks.includes(c.name));
 
-      const ignoredCasksList = outdated.casks.filter((c) => ignoredCasks.includes(c.name));
-      const upgradeableCasks = outdated.casks.filter((c) => !ignoredCasks.includes(c.name));
-
-      if (pinnedFormulae.length > 0) {
-        setTerminalState((prev) => ({
-          ...prev,
-          output: `${prev.output}\n==> Skipping ${pinnedFormulae.length} pinned formulae (held back):\n    ${pinnedFormulae.map((f) => f.name).join(", ")}\n`,
-        }));
-      }
-
-      if (ignoredCasksList.length > 0) {
-        setTerminalState((prev) => ({
-          ...prev,
-          output: `${prev.output}\n==> Skipping ${ignoredCasksList.length} ignored applications:\n    ${ignoredCasksList.map((c) => c.name).join(", ")}\n`,
-        }));
-      }
-
+    // If there are pinned or ignored items, upgrade only non-pinned, non-ignored targets
+    if (pinnedFormulae.length > 0 || ignoredCasksList.length > 0) {
       const targets = [
-        ...upgradeableFormulae.map((f) => ({ name: f.name, isCask: false })),
-        ...upgradeableCasks.map((c) => ({ name: c.name, isCask: true })),
+        ...upgradeableFormulae.map((f) => f.name),
+        ...upgradeableCasks.map((c) => c.name),
       ];
 
       if (targets.length === 0) {
-        setTerminalState((prev) => ({
-          ...prev,
-          output: `${prev.output}\n==> No upgradeable packages remaining (all are pinned or ignored).`,
-          isLoading: false,
-        }));
         return;
       }
 
-      for (const item of targets) {
-        setTerminalState((prev) => ({
-          ...prev,
-          output: `${prev.output}\n==> Upgrading ${item.name}...`,
-        }));
-        await upgradePackage(item.name, item.isCask, item.isCask && includeGreedy);
+      const args = ["upgrade", ...targets];
+      if (includeGreedy && upgradeableCasks.length > 0) {
+        args.push("--greedy");
       }
-
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n\n==> All upgradeable packages completed successfully!`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
+      await runOperation(`brew upgrade (${targets.length} packages)`, args, { onSuccess: loadData });
+    } else {
+      const args = ["upgrade"];
+      if (includeGreedy) {
+        args.push("--greedy");
+      }
+      await runOperation(includeGreedy ? "brew upgrade --greedy" : "brew upgrade", args, {
+        onSuccess: loadData,
+      });
     }
   };
 
   const handleUninstallPackage = async (name: string, isCask: boolean) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew uninstall ${isCask ? "--cask " : ""}${name}`,
-      output: `==> Running: brew uninstall ${isCask ? "--cask " : ""}${name}...\nPlease wait...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await uninstallPackage(name, isCask);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Uninstall ${
-          res.success ? "completed successfully!" : "finished."
-        }`,
-        isLoading: false,
-      }));
-      if (res.success) {
+    const title = `brew uninstall ${isCask ? "--cask " : ""}${name}`;
+    const args = isCask ? ["uninstall", "--cask", name] : ["uninstall", name];
+    await runOperation(title, args, {
+      onSuccess: () => {
         setSelectedItem((prev) => {
           if (!prev) return null;
           const prevName =
@@ -403,79 +361,26 @@ export function App() {
           }
           return prev;
         });
-      }
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+        loadData();
+      },
+    });
   };
 
   const handleInstallPackage = async (name: string, isCask: boolean) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew install ${isCask ? "--cask " : ""}${name}`,
-      output: `==> Running: brew install ${isCask ? "--cask " : ""}${name}...\nDownloading and fetching dependencies...\n`,
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await installPackage(name, isCask);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Installation ${
-          res.success ? "completed successfully!" : "finished."
-        }`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    const title = `brew install ${isCask ? "--cask " : ""}${name}`;
+    const args = isCask ? ["install", "--cask", name] : ["install", name];
+    await runOperation(title, args, { onSuccess: loadData });
   };
 
   const handleAdoptApp = async (token: string) => {
-    setTerminalState({
-      isOpen: true,
-      title: `brew install --cask --adopt ${token}`,
-      output: `==> Running: brew install --cask --adopt ${token}...\nAdopting existing local application bundle into Homebrew...\n`,
-      isLoading: true,
+    const title = `brew install --cask --adopt ${token}`;
+    const args = ["install", "--cask", "--adopt", token];
+    await runOperation(title, args, {
+      onSuccess: () => {
+        loadData();
+        fetchUnmanagedApps().then(setUnmanagedApps).catch(() => {});
+      },
     });
-    setIsActionRunning(true);
-
-    try {
-      const res = await adoptCask(token);
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Adoption ${
-          res.success
-            ? "completed successfully! The application is now tracked by Homebrew."
-            : "finished."
-        }`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
   };
 
   const handleRunCommandInTerminal = async (
@@ -486,9 +391,10 @@ export function App() {
       isOpen: true,
       title,
       output: `==> Running: ${title}...\nPlease wait...\n`,
-      isLoading: true,
+      status: "running",
+      exitCode: null,
+      activeOpId: null,
     });
-    setIsActionRunning(true);
 
     try {
       const res = await runAction();
@@ -497,119 +403,65 @@ export function App() {
         output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Operation ${
           res.success ? "completed successfully!" : "finished."
         }`,
-        isLoading: false,
+        status: res.success ? "success" : "error",
+        exitCode: res.success ? 0 : 1,
       }));
       loadData();
     } catch (err: any) {
       setTerminalState((prev) => ({
         ...prev,
         output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
+        status: "error",
+        exitCode: 1,
       }));
-    } finally {
-      setIsActionRunning(false);
     }
   };
 
-  const handleServiceAction = async (name: string, action: "start" | "stop" | "restart") => {
-    setIsActionRunning(true);
-    try {
-      await manageService(name, action);
-      const updated = await fetchServices();
-      setServices(updated);
-    } catch (err: any) {
-      setTerminalState({
-        isOpen: true,
-        title: `brew services ${action} ${name}`,
-        output: `Error executing service command: ${err?.message || err}`,
-        isLoading: false,
-      });
-    } finally {
-      setIsActionRunning(false);
+  const handleServiceAction = async (
+    name: string,
+    action: "start" | "stop" | "restart",
+    asRoot = false
+  ) => {
+    const args = ["services", action, name];
+    if (asRoot) {
+      args.push("--root");
     }
+    await runOperation(`brew services ${action} ${name}${asRoot ? " (privileged)" : ""}`, args, {
+      onSuccess: async () => {
+        const updated = await fetchServices();
+        setServices(updated);
+      },
+    });
+  };
+
+  const handlePruneModeChange = (all: boolean) => {
+    setCleanupPruneAll(all);
+    fetchCleanupPreview(all)
+      .then((cln) => setCleanupPreview(cln))
+      .catch((err) => console.error("Failed to fetch cleanup preview:", err));
   };
 
   const handleRunCleanup = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew cleanup --prune=all",
-      output: "==> Purging Homebrew cache and obsolete downloaded archives...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await executeCleanup();
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Disk cleanup complete!`,
-        isLoading: false,
-      }));
-      fetchCleanupPreview().then((cln) => setCleanupPreview(cln));
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError during cleanup: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    const args = cleanupPruneAll ? ["cleanup", "-s", "--prune=all"] : ["cleanup", "-s"];
+    await runOperation(
+      cleanupPruneAll ? "brew cleanup -s --prune=all" : "brew cleanup -s",
+      args,
+      {
+        onSuccess: () => {
+          fetchCleanupPreview(cleanupPruneAll)
+            .then((cln) => setCleanupPreview(cln))
+            .catch(() => {});
+        },
+      }
+    );
   };
 
   const handleRunAutoremove = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew autoremove",
-      output: "==> Removing unneeded orphaned formulas that were installed as dependencies...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await executeAutoremove();
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Autoremove complete!`,
-        isLoading: false,
-      }));
-      loadData();
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError during autoremove: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    await runOperation("brew autoremove", ["autoremove"], { onSuccess: loadData });
   };
 
   const handleCheckDoctor = async () => {
-    setTerminalState({
-      isOpen: true,
-      title: "brew doctor",
-      output: "==> Running Homebrew Doctor to diagnose system issues...\nPlease wait...\n",
-      isLoading: true,
-    });
-    setIsActionRunning(true);
-
-    try {
-      const res = await checkDoctor();
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\n${res.stdout}\n${res.stderr}\n\n==> Diagnostic complete!`,
-        isLoading: false,
-      }));
-    } catch (err: any) {
-      setTerminalState((prev) => ({
-        ...prev,
-        output: `${prev.output}\nError: ${err?.message || err}`,
-        isLoading: false,
-      }));
-    } finally {
-      setIsActionRunning(false);
-    }
+    await runOperation("brew doctor", ["doctor"]);
   };
 
   const getTabHeader = () => {
@@ -690,6 +542,7 @@ export function App() {
           servicesRunning: runningServicesCount,
           outdated: totalOutdatedCount,
           cleanupSpace: cleanupPreview?.total_space || "0 B",
+          isBrewfileDirty,
         }}
         systemInfo={systemInfo}
         onOpenDoctor={handleCheckDoctor}
@@ -702,9 +555,12 @@ export function App() {
           subtitle={headerMeta.subtitle}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
-          onRefresh={loadData}
+          onRefresh={() => {
+            loadData();
+            loadUnmanagedApps();
+          }}
           onCheckUpdates={handleCheckForUpdates}
-          isLoading={isLoading}
+          isLoading={isLoading || isScanningUnmanaged}
           isCheckingUpdates={isCheckingUpdates}
           lastChecked={lastChecked}
           showSearchInput={headerMeta.showSearch}
@@ -750,6 +606,9 @@ export function App() {
                 casks={casks}
                 outdatedList={outdated.casks || []}
                 unmanagedApps={unmanagedApps}
+                unmanagedAppsError={unmanagedAppsError}
+                isScanningUnmanaged={isScanningUnmanaged}
+                onRefreshUnmanaged={loadUnmanagedApps}
                 searchTerm={searchTerm}
                 onUpgrade={(name) => handleUpgradePackage(name, true)}
                 onUninstall={(name) => handleUninstallPackage(name, true)}
@@ -793,6 +652,8 @@ export function App() {
             {activeTab === "cleanup" && (
               <CleanupView
                 preview={cleanupPreview}
+                pruneAll={cleanupPruneAll}
+                onPruneModeChange={handlePruneModeChange}
                 onRunCleanup={handleRunCleanup}
                 onRunAutoremove={handleRunAutoremove}
                 isActionRunning={isActionRunning}
@@ -804,6 +665,14 @@ export function App() {
               <BrewfileView
                 onRunCommandInTerminal={handleRunCommandInTerminal}
                 isActionRunning={isActionRunning}
+                brewfileData={brewfileData}
+                setBrewfileData={setBrewfileData}
+                savedContent={brewfileSavedContent}
+                setSavedContent={setBrewfileSavedContent}
+                checkResult={brewfileCheckResult}
+                setCheckResult={setBrewfileCheckResult}
+                onReload={loadBrewfileData}
+                isLoading={isBrewfileLoading}
               />
             )}
 
@@ -845,7 +714,7 @@ export function App() {
               <div className="h-3.5 w-px bg-white/10" />
 
               <button
-                onClick={handleUpgradeAll}
+                onClick={() => handleUpgradeAll()}
                 disabled={isActionRunning}
                 className="px-3 py-1 rounded-lg apple-btn-primary text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
@@ -857,13 +726,43 @@ export function App() {
         )}
       </div>
 
+      {/* Background Running Indicator */}
+      {isActionRunning && !terminalState.isOpen && (
+        <div className="fixed bottom-5 right-5 z-40 flex items-center gap-3 bg-zinc-900/95 border border-amber-500/30 shadow-2xl shadow-black/60 rounded-full px-4 py-2 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span className="text-xs font-mono font-medium text-zinc-200 max-w-xs truncate">
+              {terminalState.title || "Operation running"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 pl-2 border-l border-white/10">
+            <button
+              onClick={openTerminal}
+              className="px-2.5 py-1 text-xs rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition-all cursor-pointer"
+            >
+              View Logs
+            </button>
+            <button
+              onClick={cancelActiveOperation}
+              className="p-1 rounded-lg text-red-400 hover:bg-red-500/20 transition-all cursor-pointer"
+              title="Cancel operation"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Terminal Modal */}
       <TerminalModal
         isOpen={terminalState.isOpen}
-        onClose={() => setTerminalState((prev) => ({ ...prev, isOpen: false }))}
+        onClose={closeTerminal}
         title={terminalState.title}
         output={terminalState.output}
-        isLoading={terminalState.isLoading}
+        isLoading={isActionRunning}
+        status={terminalState.status}
+        exitCode={terminalState.exitCode}
+        onCancel={cancelActiveOperation}
       />
     </div>
   );

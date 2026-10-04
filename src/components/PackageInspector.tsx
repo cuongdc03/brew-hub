@@ -44,27 +44,37 @@ export const PackageInspector: React.FC<PackageInspectorProps> = ({
   if (!item) return null;
 
   const isCask = item.type === "cask";
+  const caskData = isCask ? (item.data as CaskItem) : null;
+  const formulaData = !isCask ? (item.data as FormulaItem) : null;
+
   const name = isCask
-    ? (item.data as CaskItem).name?.[0] || (item.data as CaskItem).token
-    : (item.data as FormulaItem).name;
+    ? caskData?.name?.[0] || caskData?.token || ""
+    : formulaData?.name || "";
   const token = isCask
-    ? (item.data as CaskItem).token
-    : (item.data as FormulaItem).name;
+    ? caskData?.token || ""
+    : formulaData?.name || "";
   const desc = item.data.desc;
   const homepage = item.data.homepage;
-  const isOutdated = Boolean(item.outdatedInfo || item.data.outdated);
 
   const isPinned = !isCask && Boolean((item.data as FormulaItem).pinned);
   const isAutoUpdates = isCask && Boolean((item.data as CaskItem).auto_updates);
   const isIgnored = isCask && ignoredCasks.includes(token);
 
   const installedVer = isCask
-    ? (item.data as CaskItem).version
-    : (item.data as FormulaItem).installed?.[0]?.version ||
-      (item.data as FormulaItem).versions?.stable ||
-      "—";
+    ? caskData?.installed || caskData?.version || "—"
+    : formulaData?.linked_keg ||
+      (formulaData?.installed && formulaData.installed.length > 0
+        ? formulaData.installed[formulaData.installed.length - 1].version
+        : formulaData?.versions?.stable || "—");
 
-  const latestVer = item.outdatedInfo?.current_version || installedVer;
+  const latestVer = isCask
+    ? item.outdatedInfo?.current_version || caskData?.version || installedVer
+    : item.outdatedInfo?.current_version || formulaData?.versions?.stable || installedVer;
+
+  const isVersionMismatch = Boolean(
+    isCask && caskData?.installed && caskData?.version && caskData.installed !== caskData.version
+  );
+  const isOutdated = Boolean(item.outdatedInfo || item.data.outdated || isVersionMismatch);
 
   const dependencies = !isCask
     ? (item.data as FormulaItem).dependencies || []

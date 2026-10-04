@@ -32,6 +32,7 @@ interface SidebarProps {
     servicesRunning: number;
     outdated: number;
     cleanupSpace: string;
+    isBrewfileDirty?: boolean;
   };
   systemInfo: SystemInfo | null;
   onOpenDoctor: () => void;
@@ -113,6 +114,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "brewfile" as TabType,
           label: "Brewfile & Sync",
           icon: FileCode2,
+          badge: counts.isBrewfileDirty ? "●" : undefined,
+          badgeColor: "bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold",
         },
       ],
     },

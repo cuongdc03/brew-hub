@@ -31,7 +31,7 @@ interface DashboardViewProps {
   onUpgradePackage: (name: string, isCask: boolean) => void;
   onRunCleanup: () => void;
   onRunAutoremove: () => void;
-  onServiceAction: (name: string, action: "start" | "stop" | "restart") => void;
+  onServiceAction: (name: string, action: "start" | "stop" | "restart", asRoot?: boolean) => void;
   onOpenDoctor: () => void;
   isActionRunning: boolean;
   isLoading?: boolean;

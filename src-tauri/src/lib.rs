@@ -1,19 +1,23 @@
 mod brew;
 
 use brew::{
-    adopt_cask_package, check_brew_doctor, check_brewfile, export_brewfile_to_path,
-    get_brewfile_content, get_cleanup_dry_run, get_installed_json, get_outdated_json,
-    get_services_list, get_system_info, install_brewfile, manage_service_action,
-    package_operation, pin_formula, run_autoremove_execute, run_cleanup_execute, save_brewfile,
-    scan_unmanaged_apps, search_brew, unpin_formula, update_brew_index, BrewfileCheckResult,
-    CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
+    adopt_cask_package, cancel_operation, check_brew_doctor, check_brewfile,
+    export_brewfile_to_path, get_autoremove_dry_run, get_brewfile_content, get_cleanup_dry_run,
+    get_installed_json, get_outdated_json, get_services_list, get_system_info, install_brewfile,
+    manage_service_action, package_operation, pin_formula, run_autoremove_execute,
+    run_brew_streaming, run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew,
+    unpin_formula, update_brew_index, AutoremovePreview, BrewfileCheckResult, BrewfileData,
+    CleanupPreview, CommandOutput, OpEvent, SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
 use tauri_plugin_notification::NotificationExt;
+
+static IS_QUITTING: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 async fn get_system() -> Result<SystemInfo, String> {
@@ -51,18 +55,27 @@ async fn get_services() -> Result<Vec<ServiceInfo>, String> {
 }
 
 #[tauri::command]
-async fn manage_service(name: String, action: String) -> Result<CommandOutput, String> {
-    manage_service_action(&name, &action).await
+async fn manage_service(
+    name: String,
+    action: String,
+    as_root: Option<bool>,
+) -> Result<CommandOutput, String> {
+    manage_service_action(&name, &action, as_root.unwrap_or(false)).await
 }
 
 #[tauri::command]
-async fn get_cleanup_preview() -> Result<CleanupPreview, String> {
-    get_cleanup_dry_run().await
+async fn get_cleanup_preview(prune_all: Option<bool>) -> Result<CleanupPreview, String> {
+    get_cleanup_dry_run(prune_all).await
 }
 
 #[tauri::command]
-async fn run_cleanup() -> Result<CommandOutput, String> {
-    run_cleanup_execute().await
+async fn run_cleanup(prune_all: Option<bool>) -> Result<CommandOutput, String> {
+    run_cleanup_execute(prune_all).await
+}
+
+#[tauri::command]
+async fn get_autoremove_preview() -> Result<AutoremovePreview, String> {
+    get_autoremove_dry_run().await
 }
 
 #[tauri::command]
@@ -120,7 +133,7 @@ async fn adopt_cask(token: String) -> Result<CommandOutput, String> {
 }
 
 #[tauri::command]
-async fn get_brewfile(path: Option<String>) -> Result<String, String> {
+async fn get_brewfile(path: Option<String>) -> Result<BrewfileData, String> {
     get_brewfile_content(path).await
 }
 
@@ -151,9 +164,23 @@ async fn export_brewfile(target_path: String) -> Result<CommandOutput, String> {
     export_brewfile_to_path(&target_path).await
 }
 
+#[tauri::command]
+async fn execute_streaming_brew(
+    op_id: String,
+    args: Vec<String>,
+    on_event: tauri::ipc::Channel<OpEvent>,
+) -> Result<(), String> {
+    run_brew_streaming(op_id, args, on_event).await
+}
+
+#[tauri::command]
+async fn cancel_brew_operation(op_id: String) -> Result<bool, String> {
+    cancel_operation(&op_id).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -186,6 +213,7 @@ pub fn run() {
                                 }
                             }
                             "quit" => {
+                                IS_QUITTING.store(true, Ordering::SeqCst);
                                 app.exit(0);
                             }
                             "check" => {
@@ -308,6 +336,17 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                #[cfg(target_os = "macos")]
+                {
+                    if !IS_QUITTING.load(Ordering::SeqCst) {
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_system,
             get_installed,
@@ -316,6 +355,7 @@ pub fn run() {
             get_services,
             manage_service,
             get_cleanup_preview,
+            get_autoremove_preview,
             run_cleanup,
             run_autoremove,
             upgrade_package,
@@ -331,8 +371,24 @@ pub fn run() {
             save_brewfile_content,
             check_brewfile_dependencies,
             install_brewfile_dependencies,
-            export_brewfile
+            export_brewfile,
+            execute_streaming_brew,
+            cancel_brew_operation
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } => {
+            IS_QUITTING.store(true, Ordering::SeqCst);
+        }
+        tauri::RunEvent::Reopen { .. } => {
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }
+        _ => {}
+    });
 }

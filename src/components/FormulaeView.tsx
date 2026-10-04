@@ -124,9 +124,10 @@ export const FormulaeView: React.FC<FormulaeViewProps> = ({
                 const isOutdated = outdatedMap.has(item.name) || item.outdated;
                 const outdatedInfo = outdatedMap.get(item.name);
                 const installedVer =
-                  item.installed && item.installed.length > 0
-                    ? item.installed[0].version
-                    : item.versions?.stable || "Unknown";
+                  item.linked_keg ||
+                  (item.installed && item.installed.length > 0
+                    ? item.installed[item.installed.length - 1].version
+                    : item.versions?.stable || "Unknown");
 
                 const isSelected =
                   selectedItem?.type === "formula" &&
