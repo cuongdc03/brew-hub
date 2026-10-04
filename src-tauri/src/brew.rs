@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemInfo {
@@ -220,6 +221,30 @@ pub async fn get_outdated_json() -> Result<serde_json::Value, String> {
 
     serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("Failed to parse brew outdated JSON: {}", e))
+}
+
+static BREW_UPDATE_MUTEX: Mutex<()> = Mutex::const_new(());
+
+pub async fn update_brew_index() -> Result<String, String> {
+    let _guard = BREW_UPDATE_MUTEX.lock().await;
+    let mut cmd = create_brew_command();
+    cmd.env_remove("HOMEBREW_NO_AUTO_UPDATE");
+    cmd.env("HOMEBREW_NO_ENV_HINTS", "1");
+    cmd.arg("update");
+    cmd.arg("--auto-update");
+    cmd.arg("--quiet");
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute brew update: {}", e))?;
+
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("brew update failed: {}", err_msg));
+    }
+
+    Ok("Homebrew index successfully updated".to_string())
 }
 
 pub async fn get_services_list() -> Result<Vec<ServiceInfo>, String> {
@@ -1093,6 +1118,11 @@ mod tests {
             assert!(!app.cask_token.is_empty());
             assert!(!app.name.is_empty());
         }
+    }
+    #[tokio::test]
+    async fn test_update_brew_index_runnable() {
+        let res = update_brew_index().await;
+        assert!(res.is_ok(), "Expected update_brew_index to succeed: {:?}", res.err());
     }
 
     #[tokio::test]

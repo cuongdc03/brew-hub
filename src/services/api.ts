@@ -10,6 +10,7 @@ import {
   UnmanagedApp,
   BrewfileCheckResult,
   BrewfileData,
+  CheckUpdatesResult,
 } from "../types/brew";
 
 export async function fetchSystemInfo(): Promise<SystemInfo> {
@@ -29,6 +30,17 @@ export async function fetchOutdatedPackages(): Promise<OutdatedData> {
   return {
     formulae: data.formulae || [],
     casks: data.casks || [],
+  };
+}
+
+export async function checkForUpdates(): Promise<CheckUpdatesResult> {
+  const data = await invoke<any>("check_for_updates");
+  return {
+    outdated: {
+      formulae: data.outdated?.formulae || [],
+      casks: data.outdated?.casks || [],
+    },
+    last_checked: data.last_checked || 0,
   };
 }
 

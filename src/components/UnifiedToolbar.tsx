@@ -1,4 +1,4 @@
-import { RefreshCw, Search, Command, PanelRight } from "lucide-react";
+import { RefreshCw, Search, Command, PanelRight, ArrowDownCircle } from "lucide-react";
 
 interface UnifiedToolbarProps {
   title: string;
@@ -6,11 +6,27 @@ interface UnifiedToolbarProps {
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   onRefresh: () => void;
+  onCheckUpdates: () => void;
   isLoading: boolean;
+  isCheckingUpdates: boolean;
+  lastChecked: number | null;
   showSearchInput?: boolean;
   isInspectorOpen: boolean;
   onToggleInspector: () => void;
   canInspect?: boolean;
+}
+
+function formatRelativeTime(timestampSec: number): string {
+  const diffSec = Math.floor(Date.now() / 1000 - timestampSec);
+  if (diffSec < 45) return "just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return new Date(timestampSec * 1000).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = ({
@@ -19,7 +35,10 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = ({
   searchTerm,
   setSearchTerm,
   onRefresh,
+  onCheckUpdates,
   isLoading,
+  isCheckingUpdates,
+  lastChecked,
   showSearchInput = true,
   isInspectorOpen,
   onToggleInspector,
@@ -33,16 +52,30 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = ({
           <h2 className="text-sm font-bold text-zinc-100 tracking-tight leading-none">
             {title}
           </h2>
-          <p className="text-[11px] text-zinc-400 font-medium mt-0.5 leading-none">
-            {subtitle}
+          <p className="text-[11px] text-zinc-400 font-medium mt-1 leading-none flex items-center gap-2">
+            <span>{subtitle}</span>
+            {lastChecked ? (
+              <>
+                <span className="text-zinc-600">•</span>
+                <span
+                  className="text-zinc-400"
+                  title={`Last index update: ${new Date(lastChecked * 1000).toLocaleString()}`}
+                >
+                  Last checked:{" "}
+                  <span className="text-zinc-300 font-mono text-[10px]">
+                    {formatRelativeTime(lastChecked)}
+                  </span>
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
       </div>
 
       {/* Toolbar Controls */}
-      <div className="flex items-center gap-2.5 no-drag">
+      <div className="flex items-center gap-2 no-drag">
         {showSearchInput && (
-          <div className="relative w-56 group">
+          <div className="relative w-52 group">
             <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 group-focus-within:text-blue-400 transition-colors" />
             <input
               type="text"
@@ -58,13 +91,29 @@ export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = ({
         )}
 
         <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="h-7 px-2.5 rounded-lg border border-white/8 bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 hover:text-white transition-all shadow-xs disabled:opacity-50 flex items-center gap-1.5 text-xs font-medium cursor-pointer"
-          title="Sync Homebrew Data"
+          onClick={onCheckUpdates}
+          disabled={isLoading || isCheckingUpdates}
+          className="h-7 px-2.5 rounded-lg border border-blue-500/25 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 hover:text-blue-100 transition-all shadow-xs disabled:opacity-50 flex items-center gap-1.5 text-xs font-medium cursor-pointer"
+          title="Refresh Homebrew package index and check for updates (runs brew update)"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-blue-400" : "text-zinc-400"}`} />
-          <span className="hidden sm:inline text-[11px]">Sync</span>
+          <ArrowDownCircle
+            className={`w-3.5 h-3.5 ${isCheckingUpdates ? "animate-spin text-blue-400" : "text-blue-400"}`}
+          />
+          <span className="hidden sm:inline text-[11px]">
+            {isCheckingUpdates ? "Checking..." : "Check Updates"}
+          </span>
+        </button>
+
+        <button
+          onClick={onRefresh}
+          disabled={isLoading || isCheckingUpdates}
+          className="h-7 px-2.5 rounded-lg border border-white/8 bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 hover:text-white transition-all shadow-xs disabled:opacity-50 flex items-center gap-1.5 text-xs font-medium cursor-pointer"
+          title="Reload local package data (fast, no network update)"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-zinc-400" : "text-zinc-400"}`}
+          />
+          <span className="hidden sm:inline text-[11px]">Reload</span>
         </button>
 
         {canInspect && (
