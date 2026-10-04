@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import {
   AutoremovePreview,
   CleanupPreview,
@@ -11,6 +11,7 @@ import {
   UnmanagedApp,
   BrewfileCheckResult,
   BrewfileData,
+  OpEvent,
   CheckUpdatesResult,
 } from "../types/brew";
 
@@ -130,4 +131,22 @@ export async function installBrewfileDependencies(
 
 export async function exportBrewfile(targetPath: string): Promise<CommandOutput> {
   return await invoke<CommandOutput>("export_brewfile", { targetPath });
+}
+
+export async function streamBrewOperation(
+  opId: string,
+  args: string[],
+  onEvent: (event: OpEvent) => void
+): Promise<void> {
+  const channel = new Channel<OpEvent>();
+  channel.onmessage = onEvent;
+  await invoke("execute_streaming_brew", {
+    opId,
+    args,
+    onEvent: channel,
+  });
+}
+
+export async function cancelBrewOperation(opId: string): Promise<boolean> {
+  return await invoke<boolean>("cancel_brew_operation", { opId });
 }

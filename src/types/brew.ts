@@ -116,6 +116,12 @@ export interface BrewfileCheckResult {
   raw_output: string;
 }
 
+export type OpEvent =
+  | { type: "Stdout"; data: string }
+  | { type: "Stderr"; data: string }
+  | { type: "Exit"; data: number | null }
+  | { type: "Error"; data: string };
+
 export interface BrewfileData {
   path: string;
   content: string;

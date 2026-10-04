@@ -1,13 +1,13 @@
 mod brew;
 
 use brew::{
-    adopt_cask_package, check_brew_doctor, check_brewfile, export_brewfile_to_path,
-    get_autoremove_dry_run, get_brewfile_content, get_cleanup_dry_run, get_installed_json,
-    get_outdated_json, get_services_list, get_system_info, install_brewfile, manage_service_action,
-    package_operation, run_autoremove_execute, run_cleanup_execute, save_brewfile,
-    scan_unmanaged_apps, search_brew, update_brew_index, AutoremovePreview, BrewfileCheckResult,
-    BrewfileData, CleanupPreview, CommandOutput, SearchResult, ServiceInfo, SystemInfo,
-    UnmanagedApp,
+    adopt_cask_package, cancel_operation, check_brew_doctor, check_brewfile,
+    export_brewfile_to_path, get_autoremove_dry_run, get_brewfile_content, get_cleanup_dry_run,
+    get_installed_json, get_outdated_json, get_services_list, get_system_info, install_brewfile,
+    manage_service_action, package_operation, run_autoremove_execute, run_brew_streaming,
+    run_cleanup_execute, save_brewfile, scan_unmanaged_apps, search_brew, update_brew_index,
+    AutoremovePreview, BrewfileCheckResult, BrewfileData, CleanupPreview, CommandOutput, OpEvent,
+    SearchResult, ServiceInfo, SystemInfo, UnmanagedApp,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
@@ -148,6 +148,20 @@ async fn install_brewfile_dependencies(
 #[tauri::command]
 async fn export_brewfile(target_path: String) -> Result<CommandOutput, String> {
     export_brewfile_to_path(&target_path).await
+}
+
+#[tauri::command]
+async fn execute_streaming_brew(
+    op_id: String,
+    args: Vec<String>,
+    on_event: tauri::ipc::Channel<OpEvent>,
+) -> Result<(), String> {
+    run_brew_streaming(op_id, args, on_event).await
+}
+
+#[tauri::command]
+async fn cancel_brew_operation(op_id: String) -> Result<bool, String> {
+    cancel_operation(&op_id).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -341,7 +355,9 @@ pub fn run() {
             save_brewfile_content,
             check_brewfile_dependencies,
             install_brewfile_dependencies,
-            export_brewfile
+            export_brewfile,
+            execute_streaming_brew,
+            cancel_brew_operation
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

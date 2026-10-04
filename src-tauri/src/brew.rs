@@ -1,8 +1,24 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::{Mutex as StdMutex, RwLock};
+use tauri::ipc::Channel;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum OpEvent {
+    Stdout(String),
+    Stderr(String),
+    Exit(Option<i32>),
+    Error(String),
+}
+
+static RUNNING_OPERATIONS: std::sync::LazyLock<StdMutex<HashMap<String, u32>>> =
+    std::sync::LazyLock::new(|| StdMutex::new(HashMap::new()));
+
 /// Global lock to serialize mutating Homebrew operations (install, upgrade, uninstall, adopt, cleanup, autoremove, bundle install).
 /// This prevents concurrent `brew` invocations from failing with "Another active Homebrew process is already in progress".
 pub static BREW_MUTATION_LOCK: Mutex<()> = Mutex::const_new(());
@@ -713,6 +729,103 @@ pub async fn package_operation(
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
+}
+
+pub async fn run_brew_streaming(
+    op_id: String,
+    args: Vec<String>,
+    on_event: Channel<OpEvent>,
+) -> Result<(), String> {
+    let mut cmd = create_brew_command();
+    cmd.args(&args);
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn brew command: {}", e))?;
+
+    if let Some(pid) = child.id() {
+        if let Ok(mut ops) = RUNNING_OPERATIONS.lock() {
+            ops.insert(op_id.clone(), pid);
+        }
+    }
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let on_event_stdout = on_event.clone();
+    let stdout_task = tokio::spawn(async move {
+        if let Some(out) = stdout {
+            let reader = BufReader::new(out);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = on_event_stdout.send(OpEvent::Stdout(line));
+            }
+        }
+    });
+
+    let on_event_stderr = on_event.clone();
+    let stderr_task = tokio::spawn(async move {
+        if let Some(err) = stderr {
+            let reader = BufReader::new(err);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let _ = on_event_stderr.send(OpEvent::Stderr(line));
+            }
+        }
+    });
+
+    let status_res = child.wait().await;
+    let _ = tokio::join!(stdout_task, stderr_task);
+
+    if let Ok(mut ops) = RUNNING_OPERATIONS.lock() {
+        ops.remove(&op_id);
+    }
+
+    match status_res {
+        Ok(status) => {
+            let _ = on_event.send(OpEvent::Exit(status.code()));
+            Ok(())
+        }
+        Err(e) => {
+            let err_msg = format!("Process failed: {}", e);
+            let _ = on_event.send(OpEvent::Error(err_msg.clone()));
+            Err(err_msg)
+        }
+    }
+}
+
+pub async fn cancel_operation(op_id: &str) -> Result<bool, String> {
+    let pid_opt = {
+        if let Ok(ops) = RUNNING_OPERATIONS.lock() {
+            ops.get(op_id).copied()
+        } else {
+            None
+        }
+    };
+
+    if let Some(pid) = pid_opt {
+        #[cfg(unix)]
+        {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/F"])
+                .status();
+        }
+
+        if let Ok(mut ops) = RUNNING_OPERATIONS.lock() {
+            ops.remove(op_id);
+        }
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 pub async fn search_brew(query: &str) -> Result<SearchResult, String> {
@@ -2015,5 +2128,12 @@ openssl@1.1
 
         // Verify the temporary file was cleaned up and no longer exists
         assert!(!temp_check_file.exists());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_nonexistent_operation() {
+        let res = cancel_operation("nonexistent_op_123").await;
+        assert!(res.is_ok());
+        assert!(!res.unwrap());
     }
 }
