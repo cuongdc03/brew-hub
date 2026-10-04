@@ -36,6 +36,8 @@ interface DashboardViewProps {
   isActionRunning: boolean;
   isLoading?: boolean;
   onSelectItem: (item: InspectedItem) => void;
+  onCheckUpdates?: () => void;
+  isCheckingUpdates?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -53,6 +55,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isActionRunning,
   isLoading,
   onSelectItem,
+  onCheckUpdates,
+  isCheckingUpdates = false,
 }) => {
   const totalOutdated = (outdated.formulae?.length || 0) + (outdated.casks?.length || 0);
   const runningServices = services.filter((s) => s.status === "started");
@@ -198,11 +202,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Pending Updates ({totalOutdated})
               </h4>
             </div>
-            {totalOutdated > 0 && (
-              <span className="text-[10px] text-[#FF9F0A] font-mono px-2 py-0.5 rounded-full bg-[#FF9F0A]/10 border border-[#FF9F0A]/20">
-                Action required
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {onCheckUpdates && (
+                <button
+                  onClick={onCheckUpdates}
+                  disabled={isCheckingUpdates || isActionRunning}
+                  className="text-[11px] text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1 cursor-pointer transition-colors disabled:opacity-50"
+                  title="Check upstream Homebrew repositories for updates (runs brew update)"
+                >
+                  <RotateCw className={`w-3 h-3 ${isCheckingUpdates ? "animate-spin text-blue-400" : ""}`} />
+                  <span>{isCheckingUpdates ? "Checking..." : "Check Upstream"}</span>
+                </button>
+              )}
+              {totalOutdated > 0 && (
+                <span className="text-[10px] text-[#FF9F0A] font-mono px-2 py-0.5 rounded-full bg-[#FF9F0A]/10 border border-[#FF9F0A]/20">
+                  Action required
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="p-2 flex-1 overflow-y-auto max-h-72 divide-y divide-white/4">
